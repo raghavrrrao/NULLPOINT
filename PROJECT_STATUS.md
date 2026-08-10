@@ -1,8 +1,14 @@
 # PROJECT_STATUS.md — NULLPOINT
 
 **Last updated:** 2026-08-10
-**Current phase:** Phase 0 — Foundation & Documentation ✅ **complete**
-**Next phase:** Phase 1 — Toolchain & Workspace ⛔ **not started, awaiting explicit go-ahead**
+**Current phase:** Phase 1 — Toolchain & First Playable Prototype ✅ **complete**
+**Next phase:** Phase 3 — Server Core & Transport ⛔ **not started, awaiting explicit go-ahead**
+
+> **Phase 1 was redefined by the developer** on 2026-08-10 to mean "first
+> playable single-player third-person prototype". That merges the original
+> Phase 1 (Toolchain & Workspace) and Phase 2 (Client Sandbox) into one phase.
+> Phases 3–10 keep their original numbering, so Phase 2 is retired rather than
+> renumbered.
 
 > Per `CLAUDE.md` §2: **no phase begins until the developer explicitly says to
 > start it.** A phase is complete only when *every* exit criterion is true.
@@ -15,8 +21,8 @@
 | Phase | Name | Status |
 | ----- | ---- | ------ |
 | 0 | Foundation & Documentation | ✅ Complete |
-| 1 | Toolchain & Workspace | ⛔ Not started |
-| 2 | Client Sandbox — third-person movement | ⛔ Not started |
+| 1 | Toolchain & First Playable Third-Person Prototype | ✅ Complete |
+| 2 | *(retired — merged into Phase 1)* | — |
 | 3 | Server Core & Transport | ⛔ Not started |
 | 4 | Networked Movement — **first playable multiplayer** | ⛔ Not started |
 | 5 | Combat | ⛔ Not started |
@@ -77,69 +83,111 @@ developer asks (`CLAUDE.md` §10).
 
 ---
 
-## Phase 1 — Toolchain & Workspace ⛔
+## Phase 1 — Toolchain & First Playable Third-Person Prototype ✅
 
-**Goal:** A repository that builds, type-checks, lints and tests — with nothing
-in it yet.
+**Goal:** A repository that builds, type-checks and tests, and a playable
+single-player third-person prototype whose movement, camera and physics already
+feel correct.
 
-**Blocked on:** **Q22** (branch naming — `master` vs `main`). Trivial, but it
-should be settled before the first commit. Otherwise ready to start on the
-developer's word.
+**Redefined by the developer on 2026-08-10**, merging the original Phase 1
+(Toolchain & Workspace) and Phase 2 (Client Sandbox). Multiplayer, Firebase,
+weapons and audio were explicitly excluded.
 
-**Scope**
+**Unblocked by:** Q9, Q12 and Q19, all answered in `PROJECT.md` §6 by the
+Phase 1 brief.
 
-- Root `package.json` with npm workspaces.
-- Per-package `package.json` for `shared`, `client`, `server` — exact-pinned
-  versions, no carets.
-- TypeScript config: `strict`, `noUncheckedIndexedAccess`,
-  `exactOptionalPropertyTypes`, `noImplicitOverride`. Project references so
-  `shared` builds once and both consumers use its output.
-- Vite for the client. `tsc` for the server.
-- Node built-in test runner wired up; Playwright installed and configured.
-- The project logger (`shared`) — a small level-based wrapper. No `console.log`
-  anywhere else.
-- npm scripts: `build`, `typecheck`, `lint`, `test`, `test:e2e`, `dev`.
+### Delivered — toolchain
 
-**Dependencies installed** (approved stack only — nothing else without asking):
-`typescript`, `three`, `@dimforge/rapier3d-compat`, `ws`, `firebase`,
-`firebase-admin`, `vite`, `@playwright/test`, and their required `@types/*`.
+- npm workspaces: `@nullpoint/shared`, `@nullpoint/client`. The `server`
+  package is intentionally **not** created yet — it has no code until Phase 3,
+  and an empty package breaks `tsc --build`.
+- TypeScript strict with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+  `noImplicitOverride`, plus `noUnusedLocals`, `noUnusedParameters` and
+  `verbatimModuleSyntax`. Zero `any`, zero non-null assertions.
+- Vite 8 for the client; Node's built-in test runner for unit tests; Playwright
+  for end-to-end.
+- The project logger in `shared/src/util/logger.ts` — the only sanctioned
+  `console` usage. No `console.log` anywhere.
+- Scripts: `dev`, `build`, `preview`, `typecheck`, `test`, `test:e2e`.
 
-**Exit criteria**
+### Delivered — prototype
 
-- [ ] `npm run typecheck` passes across all three packages with zero errors.
-- [ ] `npm run build` produces a client bundle and a server build.
-- [ ] `npm test` runs and passes (even with a single placeholder test).
-- [ ] `npm run test:e2e` launches Playwright and passes a trivial page-loads test.
-- [ ] `shared` is importable from both `client` and `server`; neither imports the other.
-- [ ] No `any` in any committed file. No `console.log`.
-- [ ] Lockfile committed; every version exact-pinned.
+- **Rendering:** WebGL2, capped device pixel ratio, resize handling, PCF shadow
+  maps, sRGB output, ACES tone mapping, hemisphere + ambient fill + directional
+  key light whose shadow frustum follows the player.
+- **Physics:** Rapier 0.20 kinematic capsule with a `KinematicCharacterController`
+  (autostep, ground snapping, slope limits). Rapier's own gravity is zero —
+  gravity lives in the shared simulation so the server can run it identically.
+- **Movement:** camera-relative, acceleration/deceleration, walk/run/sprint/crouch
+  speeds, air control, coyote time, jump buffering. All of it in
+  `packages/shared/src/sim/movement.ts`, free of Three.js, Rapier and the DOM.
+- **Camera:** over-the-shoulder boom, mouse orbit under pointer lock, clamped
+  pitch, exponential follow smoothing, sphere-cast collision that pulls in
+  instantly and eases back out.
+- **Character:** procedural humanoid rig with authored `AnimationClip`s played
+  through `AnimationMixer` with cross-fades and speed-scaled playback. Covers
+  IDLE, WALK, RUN, SPRINT, JUMP, FALL and CROUCH.
+- **Arena:** grey-box built from one data table, so every mesh has a matching
+  collider by construction — perimeter walls, ramp to an elevated platform,
+  staircase to a ledge, crouch gate, tight corridor, inside corner, pillars and
+  graded crates.
+- **HUD:** temporary development overlay — FPS, frame time, worst frame, physics
+  ms, draw calls, triangles, movement state, grounded, speed, position, velocity,
+  character source. `F3` toggles it.
 
----
+### Exit criteria — all met
 
-## Phase 2 — Client Sandbox ⛔
+- [x] `npm run typecheck` passes with zero errors.
+- [x] `npm run build` produces a client bundle.
+- [x] `npm test` passes — 45 unit tests.
+- [x] `npm run test:e2e` passes — 28 Playwright tests in real Chromium.
+- [x] `shared` is imported by `client`; `client` imports nothing from a server.
+- [x] No `any`, no non-null assertions, no `console.log` in committed code.
+- [x] Lockfile committed; every dependency version exact-pinned.
+- [x] Dev server starts and the game loads in Chromium.
+- [x] Arena and a visible third-person humanoid render correctly.
+- [x] WASD movement works and is camera-relative.
+- [x] Sprint, walk modifier, jump, crouch and gravity all work.
+- [x] Ground detection, wall collision, stairs and ramps all work.
+- [x] Camera orbits, smooths, clamps pitch and does not clip through geometry.
+- [x] Pointer lock engages on click and releases on Escape without stuck keys.
+- [x] Idle, walk, run, sprint, jump, fall and crouch animations all play.
+- [x] Movement is frame-rate independent — unit-tested at 30, 60 and 144 Hz.
+- [x] Browser resize works.
+- [x] No uncaught browser errors and no failed network requests.
+- [x] **Measured 60 FPS at 1280×720 in Chrome with a GPU** — median frame time
+      16.5 ms, p95 21.7 ms, physics step 0.3–0.9 ms, 87 draw calls, ~1000 triangles.
+      *(`PROJECT.md` §5's 1080p figure remains an assumption — **Q21** stands.)*
 
-**Goal:** One player, no network. Third-person movement that already feels good.
+### Deviations from `ARCHITECTURE.md`, and why
 
-**Blocked on:** **Q9** (movement abilities), **Q12** (visible character or capsule).
-Both must be answered before this phase starts.
+Recorded rather than silently absorbed:
 
-**Scope**
+1. **No TypeScript project references.** A single root `tsconfig.json` covers all
+   packages. Project references need each package to emit declarations, which is
+   pointless while `shared` is consumed as source. Revisit in Phase 3 when the
+   server package lands.
+2. **`shared` is consumed through a path alias, not a built package.** Vite and
+   `tsc` both map `@nullpoint/shared` to `packages/shared/src`. Keeps HMR working
+   across the boundary and removes a build step; the one-way dependency rule is
+   unchanged.
+3. **Three client directories added** beyond those listed in `ARCHITECTURE.md` §2:
+   `character/` (rig, clips, asset loading, animation control), `physics/`
+   (Rapier world and queries) and `world/` (arena data and construction).
+   `net/` and `audio/` remain empty, awaiting Phases 3 and 9.
+4. **The `server` package is not scaffolded.** See above.
 
-- Three.js scene: grey-box test level, single directional light, no post-processing.
-- Rapier world on the client; kinematic capsule character controller.
-- `shared/src/sim` — the movement step, written here **once**, fixed timestep.
-- Third-person spring-arm camera with collision pull-in; pointer lock; pitch clamp.
-- Fixed-timestep accumulator loop with render interpolation.
-- Debug overlay: position, velocity, grounded state, frame time.
+### Known limitations
 
-**Exit criteria**
-
-- [ ] A capsule (or character, per Q12) moves, sprints, jumps and crouches under keyboard input.
-- [ ] Camera orbits with the mouse, never clips through level geometry, and never gimbal-flips.
-- [ ] Movement runs at a fixed `SIM_DT` and is frame-rate independent — verified by running at 30, 60 and 144 Hz render rates and comparing traversal distance.
-- [ ] Movement logic lives entirely in `shared/src/sim` and imports no Three.js and no DOM.
-- [ ] Unit tests cover the movement step: gravity, ground clamp, jump arc, slope limits.
-- [ ] 60 FPS at 1080p on the developer's machine with the grey-box level. *(Uses the placeholder target from `PROJECT.md` §5 — **Q21** replaces it with a real one.)*
+- The character is a **procedural placeholder**, not a licensed rigged asset.
+  See `ASSET_CREDITS.md` §6 and **Q10**/**Q11**.
+- The client bundle is ~3.5 MB (~1.26 MB gzipped), dominated by Rapier's inlined
+  WASM and Three.js. No code splitting yet — a Phase 9 concern.
+- `@types/three` pulls in a second, older copy of `@dimforge/rapier3d-compat`
+  (0.12.0) at the workspace root. The client resolves the pinned 0.20.0 from its
+  own `node_modules`; the duplicate is unused but present in the lockfile.
+- Headless Chromium has no GPU and renders at roughly 12 FPS through SwiftShader.
+  End-to-end tests therefore wait on game state, never on frame counts.
 
 ---
 
@@ -369,8 +417,8 @@ Questions are defined in `PROJECT.md` §6. Nothing below may be assumed.
 
 | Phase | Blocked by |
 | ----- | ---------- |
-| 1 | Q22 (branch name — trivial, but decide before the first commit) |
-| 2 | Q9, Q12 |
+| 1 | ✅ complete — Q9, Q12 and Q19 were answered by the Phase 1 brief |
+| 2 | *(retired — merged into Phase 1)* |
 | 3 | Q13 |
 | 4 | Q1 |
 | 5 | Q4, Q5, Q6, Q7 |
@@ -395,3 +443,7 @@ Architectural decisions that shaped the plan. Detailed records go in `docs/adr/`
 | 2026-08-10 | Remote players interpolated, never predicted | Simpler and adequate; smoothness over freshness. |
 | 2026-08-10 | Firebase excluded from the realtime loop | Latency and cost; WebSockets own gameplay traffic. |
 | 2026-08-10 | Auth verification deferred to Phase 7 behind a gated dev mode | Transport can be built and tested before identity exists. |
+| 2026-08-10 | Phase 1 redefined to include the playable prototype; Phase 2 retired | Developer's call. Phases 3–10 keep their numbers so cross-references stay valid. |
+| 2026-08-10 | `shared` consumed via path alias rather than a built package | Removes a build step and keeps HMR across the package boundary. The one-way import rule is unaffected. |
+| 2026-08-10 | Collision does not write back into horizontal velocity | Doing so starves the character controller's step-up logic, making stairs unclimbable. `measuredSpeed` carries the real speed to animation and the HUD instead. |
+| 2026-08-10 | Stair treads sized to exceed the capsule diameter | A 0.55 m tread under a 0.68 m capsule cannot be stood on, and Rapier correctly refuses to autostep onto it. |

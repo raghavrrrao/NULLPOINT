@@ -3,8 +3,9 @@
 A browser-based, third-person, multiplayer shooter. Personal project, single
 developer, built for entertainment.
 
-> **Status: pre-production.** Phase 0 (documentation and structure) is complete.
-> No game code, no dependencies installed, nothing runs yet.
+> **Status: playable single-player prototype.** Phase 1 is complete — a
+> third-person character with movement, camera, physics and animation in a
+> grey-box arena. No multiplayer, no weapons, no Firebase yet.
 > See [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ---
@@ -51,5 +52,37 @@ docs/adr/          Architecture Decision Records
 
 ## Getting started
 
-Not yet applicable. Phase 1 sets up the toolchain and will add the commands
-here.
+Requires Node 22 or newer.
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+```
+
+| Command | What it does |
+| ------- | ------------ |
+| `npm run dev` | Vite dev server for the client |
+| `npm run build` | Production client bundle |
+| `npm run preview` | Serve the production bundle |
+| `npm run typecheck` | `tsc --noEmit` across every package |
+| `npm test` | Unit tests (Node's built-in runner) |
+| `npm run test:e2e` | Playwright end-to-end tests |
+
+Playwright needs its browser once: `npx playwright install chromium`.
+
+## Controls
+
+| Input | Action |
+| ----- | ------ |
+| `W` `A` `S` `D` | Move, relative to the camera |
+| Mouse | Look (click the canvas to capture the cursor, `Esc` to release) |
+| `Shift` | Sprint |
+| `Alt` | Walk |
+| `Space` | Jump |
+| `Ctrl` or `C` | Crouch |
+| `F3` | Toggle the development HUD |
+
+The player character is a **clearly-marked placeholder** — no suitably licensed
+rigged humanoid is in the repository yet. To use a real one, drop a GLB in
+`packages/client/public/models/`, set `VITE_CHARACTER_GLB` to its URL, and record
+it in [ASSET_CREDITS.md](ASSET_CREDITS.md) first.

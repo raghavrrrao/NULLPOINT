@@ -6,7 +6,9 @@ animations, audio, fonts, icons and HDRIs.
 > **Binding rule (`CLAUDE.md` §8): the entry is added _before_ the asset is
 > committed. No entry, no commit.**
 
-**Current state: no third-party assets are in use.** Every table below is empty.
+**Current state: no third-party assets are in use.** Every third-party table
+below is empty. The Phase 1 player character is a self-made procedural
+placeholder — see §6.
 
 ---
 
@@ -52,8 +54,9 @@ NULLPOINT is a non-commercial personal project (`PROJECT.md` §1), but
 acceptable — the definition of non-commercial varies by license, and a project
 that is later shared publicly can drift across the line.
 
-> **OPEN (Q19, `PROJECT.md` §6):** whether third-party assets are used at all,
-> or all art is self-made. Undecided. This ledger is ready either way.
+> **Q19 answered 2026-08-10:** third-party assets **are** acceptable where the
+> licence permits this use, with CC0 preferred (Quaternius, Poly Pizza,
+> Mixamo-compatible rigs). Licence-unclear assets remain banned outright.
 
 ---
 
@@ -127,7 +130,40 @@ completeness, not obligation.
 
 | Asset | File(s) | Tool | Date |
 | ----- | ------- | ---- | ---- |
-| *(none)* | | | |
+| Placeholder humanoid rig | `packages/client/src/character/rig.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+| Placeholder locomotion clips | `packages/client/src/character/clips.ts` | Written by hand (Three.js keyframe tracks) | 2026-08-10 |
+| Grey-box arena | `packages/client/src/world/arenaLayout.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+
+### 6.1 Why the player character is a placeholder
+
+The Phase 1 brief calls for a real CC0 humanoid (Quaternius SWAT or similar) and
+says not to spend excessive time acquiring one automatically. Searching found no
+**directly downloadable** rigged humanoid with a verifiable licence:
+
+- Quaternius and Kenney distribute through itch.io/Gumroad landing pages with no
+  stable direct asset URL.
+- three.js ships `Soldier.glb` with locomotion clips, but its `examples/models`
+  directory carries **no stated licence**. `CLAUDE.md` §8 forbids using an asset
+  whose licence is unclear, so it was not used.
+- Bypassing a download gate, CAPTCHA or paywall to obtain one is out of the
+  question.
+
+Rather than stall the phase, the prototype ships a clearly-marked procedural
+humanoid: a bone hierarchy with box limbs, amber accent parts and a visible nose
+wedge so facing is readable, driven by hand-authored `AnimationClip`s through a
+normal `AnimationMixer`.
+
+**To replace it with a real asset**, no code changes are required beyond a name
+map:
+
+1. Put the GLB somewhere the client serves, e.g. `packages/client/public/models/`.
+2. Set `VITE_CHARACTER_GLB=/models/<file>.glb`.
+3. Add the asset to §4.1 above **before** committing it.
+
+`loadCharacterAsset()` scales any GLB to `PLAYER_CONFIG.standHeight`, matches
+clip names case-insensitively against the usual Mixamo/Quaternius spellings, and
+warns about (rather than breaks on) any locomotion state the asset lacks. Until
+`VITE_CHARACTER_GLB` is set, **no network request for a character is made**.
 
 ---
 

@@ -162,7 +162,11 @@ Each must be decided by the developer before the phase that depends on it.
 
 ### Answered
 
-*(none yet — entries move here with the date and the decision when resolved)*
+| ID | Date | Decision |
+| -- | ---- | -------- |
+| Q9 | 2026-08-10 | Movement is walk, run, sprint, jump and crouch only. Sliding is explicitly deferred; dash and mantle are not in scope. Decided by the Phase 1 brief. |
+| Q12 | 2026-08-10 | A **visible humanoid is required from the first playable build** — a capsule is not acceptable as the player representation. A clearly-marked placeholder may stand in until a licensed rigged asset is supplied. |
+| Q19 | 2026-08-10 | Third-party assets **are** acceptable provided the licence permits this use; CC0 is preferred (Quaternius, Poly Pizza, Mixamo-compatible). Licence-unclear assets remain banned (`CLAUDE.md` §8). |
 
 ---
 

@@ -1,0 +1,17 @@
+{
+  "name": "@nullpoint/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NULLPOINT browser client",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "@nullpoint/shared": "*",
+    "three": "0.185.1"
+  }
+}

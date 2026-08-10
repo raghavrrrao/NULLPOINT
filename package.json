@@ -1,0 +1,31 @@
+{
+  "name": "nullpoint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based third-person multiplayer shooter",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @nullpoint/client",
+    "build": "npm run build --workspace @nullpoint/client",
+    "preview": "npm run preview --workspace @nullpoint/client",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"tests/unit/**/*.test.ts\"",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.10.1",
+    "@types/three": "0.185.4",
+    "typescript": "5.9.3",
+    "vite": "8.2.1"
+  }
+}

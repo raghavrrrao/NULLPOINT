@@ -68,7 +68,10 @@ NULLPOINT/
 │   │       ├── core/         Bootstrap, game loop, scene lifecycle
 │   │       ├── render/       Three.js: renderer, camera rig, scene graph
 │   │       ├── input/        Keyboard/mouse, pointer lock, input buffer
-│   │       ├── net/          WebSocket client, prediction, reconciliation
+│   │       ├── physics/      Rapier world, colliders, shape queries
+│   │       ├── world/        Arena description and construction
+│   │       ├── character/    Rig, animation clips, asset loading, animation state
+│   │       ├── net/          WebSocket client, prediction, reconciliation (Phase 3)
 │   │       ├── entities/     Local view models of replicated entities
 │   │       ├── ui/           HUD, menus, DOM overlay
 │   │       ├── audio/        Web Audio playback (Phase 9)
@@ -111,6 +114,17 @@ shared  ←  server
 `shared` imports nothing from `client` or `server`. `client` and `server` never
 import each other. This is enforced by review, and later by a lint rule.
 
+**How `shared` is consumed (as of Phase 1).** It is resolved as TypeScript
+*source* through a path alias — `@nullpoint/shared` → `packages/shared/src` — in
+both `tsconfig.json` and `vite.config.ts`, rather than being built to `dist`
+first. That keeps hot reload working across the package boundary and removes a
+build step that buys nothing while there is only one consumer. The one-way
+dependency rule is unchanged. Revisit when the server package lands in Phase 3.
+
+**The `server` package does not exist yet.** Its directories are in place but it
+has no `package.json`, because an empty TypeScript package fails to build. It is
+created in Phase 3.
+
 ---
 
 ## 3. The shared package
@@ -146,6 +160,12 @@ that appears in two files is a bug.
 | `INPUT_HZ` | 60 | Client → server input rate |
 | `MAX_PLAYERS_PER_ROOM` | **OPEN (Q1)** | Blocks Phase 4 |
 | `PROTOCOL_VERSION` | 1 | See `NETWORK_PROTOCOL.md` |
+
+Phase 1 added two more tables of the same kind: `PLAYER_CONFIG` (speeds,
+acceleration, gravity, jump, capsule dimensions, slope and step limits) and
+`CAMERA_CONFIG` (boom length, pivot heights, sensitivity, pitch limits,
+smoothing, collision radius). Both live in `shared/src/constants`, and no
+gameplay file is permitted to hardcode a value that belongs in them.
 
 **These rates are initial engineering defaults, not design requirements.**
 They are expected to be tuned in Phase 4 against measured behaviour.
