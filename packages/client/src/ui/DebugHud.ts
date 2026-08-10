@@ -13,6 +13,17 @@ export interface DebugHudSnapshot {
   readonly triangles: number;
   readonly physicsMs: number;
   readonly characterSource: string;
+
+  // --- Combat (Phase 2) ---
+  readonly weaponName: string;
+  readonly magazine: number;
+  readonly reserve: number;
+  readonly weaponState: string;
+  readonly aiming: boolean;
+  /** Damageable currently under the crosshair, empty when none. */
+  readonly aimTarget: string;
+  readonly lastDamage: number;
+  readonly lastTarget: string;
 }
 
 const UPDATE_INTERVAL_MS = 100;
@@ -75,6 +86,17 @@ export class DebugHud {
       `     Z ${fixed(v.z).padStart(8)}`,
       "",
       `CHAR      ${snapshot.characterSource}`,
+      "",
+      `WEAPON    ${snapshot.weaponName}`,
+      `AMMO      ${snapshot.magazine} / ${snapshot.reserve}`,
+      `STATE     ${snapshot.weaponState}${snapshot.aiming ? " (AIM)" : ""}`,
+      `AIM       ${snapshot.aiming ? "YES" : "NO"}`,
+      `TARGET    ${snapshot.aimTarget === "" ? "-" : snapshot.aimTarget}`,
+      `DAMAGE    ${
+        snapshot.lastDamage > 0
+          ? `${fixed(snapshot.lastDamage, 0)} -> ${snapshot.lastTarget}`
+          : "-"
+      }`,
     ].join("\n");
   }
 

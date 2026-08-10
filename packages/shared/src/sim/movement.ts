@@ -62,10 +62,21 @@ export function selectTargetSpeed(
   crouching: boolean,
   config: PlayerConfig,
 ): number {
-  if (crouching) return config.crouchSpeed;
-  if (intent.sprint) return config.sprintSpeed;
-  if (intent.walk) return config.walkSpeed;
-  return config.runSpeed;
+  const base = crouching
+    ? config.crouchSpeed
+    : intent.sprint
+      ? config.sprintSpeed
+      : intent.walk
+        ? config.walkSpeed
+        : config.runSpeed;
+
+  // Guard the multiplier rather than trusting it: it is an input, and a
+  // negative or non-finite value would drive the character backwards or NaN the
+  // whole simulation.
+  const multiplier = Number.isFinite(intent.speedMultiplier)
+    ? clamp(intent.speedMultiplier, 0, 1)
+    : 1;
+  return base * multiplier;
 }
 
 /**
@@ -217,7 +228,12 @@ export function stepCharacterMovement(
     applyVerticalMotion(state.velocity, state.grounded, dt, config);
   }
 
-  if (hasInput) {
+  // Aiming faces the camera; otherwise the character turns to where it is going.
+  // Without this the weapon would point along the path of travel while the
+  // player aims somewhere else entirely.
+  if (intent.aim) {
+    state.yaw = dampAngle(state.yaw, intent.cameraYaw, config.aimRotationDamp, dt);
+  } else if (hasInput) {
     state.yaw = dampAngle(state.yaw, yawFromDirection(wishDir), config.rotationDamp, dt);
   }
 

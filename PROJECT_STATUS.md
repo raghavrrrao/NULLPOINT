@@ -1,14 +1,16 @@
 # PROJECT_STATUS.md — NULLPOINT
 
 **Last updated:** 2026-08-10
-**Current phase:** Phase 1 — Toolchain & First Playable Prototype ✅ **complete**
+**Current phase:** Phase 2 — First Playable Combat ✅ **complete**
 **Next phase:** Phase 3 — Server Core & Transport ⛔ **not started, awaiting explicit go-ahead**
 
-> **Phase 1 was redefined by the developer** on 2026-08-10 to mean "first
-> playable single-player third-person prototype". That merges the original
-> Phase 1 (Toolchain & Workspace) and Phase 2 (Client Sandbox) into one phase.
-> Phases 3–10 keep their original numbering, so Phase 2 is retired rather than
-> renumbered.
+> **Phases 1 and 2 were redefined by the developer** on 2026-08-10. Phase 1 now
+> means "first playable single-player third-person prototype", merging the
+> original Phase 1 (Toolchain & Workspace) with the original Phase 2 (Client
+> Sandbox). Phase 2 now means "first playable single-player combat". Phases 3–10
+> keep their original numbering and scope, so the later Phase 5 (networked,
+> server-authoritative combat) still stands — Phase 2 is its single-player
+> foundation, not a replacement.
 
 > Per `CLAUDE.md` §2: **no phase begins until the developer explicitly says to
 > start it.** A phase is complete only when *every* exit criterion is true.
@@ -22,7 +24,7 @@
 | ----- | ---- | ------ |
 | 0 | Foundation & Documentation | ✅ Complete |
 | 1 | Toolchain & First Playable Third-Person Prototype | ✅ Complete |
-| 2 | *(retired — merged into Phase 1)* | — |
+| 2 | First Playable Combat (single-player) | ✅ Complete |
 | 3 | Server Core & Transport | ⛔ Not started |
 | 4 | Networked Movement — **first playable multiplayer** | ⛔ Not started |
 | 5 | Combat | ⛔ Not started |
@@ -141,8 +143,8 @@ Phase 1 brief.
 
 - [x] `npm run typecheck` passes with zero errors.
 - [x] `npm run build` produces a client bundle.
-- [x] `npm test` passes — 45 unit tests.
-- [x] `npm run test:e2e` passes — 31 Playwright tests in real Chromium.
+- [x] `npm test` passes — 45 unit tests (88 as of Phase 2).
+- [x] `npm run test:e2e` passes — 31 Playwright tests in real Chromium (64 as of Phase 2).
 - [x] `shared` is imported by `client`; `client` imports nothing from a server.
 - [x] No `any`, no non-null assertions, no `console.log` in committed code.
 - [x] Lockfile committed; every dependency version exact-pinned.
@@ -221,6 +223,139 @@ and `minDistance` is a small floor that is itself capped by the contact distance
   own `node_modules`; the duplicate is unused but present in the lockfile.
 - Headless Chromium has no GPU and renders at roughly 12 FPS through SwiftShader.
   End-to-end tests therefore wait on game state, never on frame counts.
+
+---
+
+## Phase 2 — First Playable Combat ✅
+
+**Goal:** The first complete single-player combat loop — equip, aim, fire, hit,
+reload — on top of the Phase 1 controller, without rebuilding any of it.
+
+**Redefined by the developer on 2026-08-10.** This is not the original Phase 2
+(Client Sandbox, retired into Phase 1) but a new single-player combat phase.
+Multiplayer, networking, Firebase and server authority remain out of scope.
+
+### Weapon architecture
+
+All weapon *rules* live in `packages/shared/src/combat`, free of Three.js,
+Rapier and the DOM:
+
+| Module | Owns |
+| ------ | ---- |
+| `weapon.ts` | `WeaponDefinition` — every tunable number for a weapon |
+| `weaponState.ts` | The state machine: IDLE / FIRING / RELOADING / EMPTY, fire rate, ammunition, reload |
+| `ballistics.ts` | Damage falloff, spread cone, recoil accumulation and recovery, seeded PRNG |
+| `damage.ts` | The `Damageable` contract and the `applyDamage` arithmetic |
+
+The client half is orchestration only: `WeaponSystem` connects those rules to the
+physics world and the renderer. That split is deliberate — Phase 4 moves damage
+behind server authority, and the rules should move without being rewritten
+(Phase 2 brief §30). Nothing in the shared half trusts its caller: damage clamps
+and rejects non-finite input, and the movement speed multiplier is clamped too.
+
+Adding a second weapon means adding a `WeaponDefinition`, not touching any of
+the above.
+
+### Rifle configuration
+
+| Setting | Value |
+| ------- | ----- |
+| Damage | 25 (four hits kill a 100 HP target) |
+| Fire rate | 700 RPM, automatic |
+| Magazine / reserve | 30 / 120 |
+| Reload | 2.1 s |
+| Range | 120 m, full damage to 40 m, ×0.55 at maximum |
+| Spread | 0.006 rad aimed, 0.038 rad from the hip |
+| Recoil | 0.013 rad/shot pitch, capped at 0.24, recovers at 7/s |
+| Aim | FOV 72 → 54, boom 5.0 → 2.1 m, movement ×0.55 |
+
+### Delivered
+
+- **Aiming from the camera, not the character.** A ray from screen centre finds
+  the world point under the crosshair; the shot is then traced from the *muzzle*
+  toward that point, so shots agree with the crosshair despite the weapon sitting
+  half a metre from the eye.
+- **Hitscan** against Rapier, resolved through a collider-handle → `Damageable`
+  registry, so the physics layer knows nothing about targets and the weapon knows
+  nothing about colliders.
+- **Five training targets** — close, medium, long, behind cover, elevated — plus a
+  narrow firing lane, an open lane and a backstop.
+- **Feedback:** pooled muzzle flash, pooled tracers and impact marks, hit marker,
+  kill marker, target flash/kick/tip-over, health bars, synthesised audio.
+- **Combat HUD** (crosshair that tightens on aim, hit marker, ammunition) kept
+  separate from the development HUD, which gained weapon, ammo, state, aim,
+  target and last-damage lines.
+- **Upper-body weapon pose** applied after the animation mixer, so the character
+  carries and aims the rifle while the legs keep running the Phase 1 locomotion
+  clips untouched.
+
+### Exit criteria — all met
+
+- [x] Rifle equipped, visible, and follows the character's movement and rotation.
+- [x] Aim mode: smooth blend of FOV, boom length, shoulder offset and pivot.
+- [x] Camera collision, jump-boom, self-collider and lift behaviour all unchanged.
+- [x] Crosshair, hit marker on a hit, no marker on a miss.
+- [x] Left mouse fires, automatic, fire rate enforced and frame-rate independent.
+- [x] Hitscan works; camera-based aiming works; muzzle flash, recoil and spread work.
+- [x] All five targets take damage; damage is exactly 25 inside falloff.
+- [x] Magazine decrements, reserve works, empty magazine prevents firing.
+- [x] Reload works, moves the right rounds, and blocks firing while it runs.
+- [x] Weapon state machine prevents every invalid combination.
+- [x] Debug HUD shows weapon state and ammunition.
+- [x] Audio abstraction works, with a silent fallback.
+- [x] No console errors; typecheck, unit tests, build and Playwright all pass.
+- [x] **Measured 60 FPS under sustained fire** — median frame 16.6 ms, p95 20.7 ms,
+      physics 0.4–3.5 ms, ~118 draw calls.
+
+### Bugs found during verification, and fixed
+
+1. **Fire rate quantised to the frame rate.** Clamping the shot cooldown at zero
+   discarded the sub-tick remainder, so 700 RPM fired at 600. The remainder is
+   now carried, with a guard so credit cannot bank up while the trigger is
+   released.
+2. **Aiming threw the shot off the crosshair.** The camera looked *at* the pivot,
+   so changing boom length and shoulder offset rotated the view. Orientation now
+   comes from yaw and pitch directly — screen centre means the aim direction and
+   nothing else.
+3. **The anti-corner camera lift fired on every aim.** The aim boom (2.1 m) is
+   shorter than `comfortableDistance` (2.4 m), which looked like an obstruction
+   and tilted the view 13° up. The comfort threshold is now capped by the boom
+   length actually wanted.
+4. **Destroyed targets still blocked shots.** The plate tipped over visually while
+   its collider stayed upright, silently absorbing everything aimed behind it.
+   The collider is now disabled on death and restored on reset.
+5. **The three range targets were collinear** from the firing line, so the near
+   plate absorbed every round aimed at the two behind it. They are now staggered
+   in z, measured from the camera rather than the player because the
+   over-the-shoulder offset moves the eye ~0.8 m sideways.
+6. **The new range geometry reached into ground a Phase 1 test relied on.** A lane
+   wall crossed x = 0, blocking the approach the cornered-camera regression test
+   walks down. The lane was shortened.
+7. **Arm pose rotations were inverted**, pointing the arms behind the character,
+   and the carry tilt raised the muzzle 26° skyward. Both signs corrected.
+
+### Known limitations
+
+- The rifle and all weapon audio are **placeholders** (`ASSET_CREDITS.md` §6.2,
+  §6.3), as is the character.
+- **Camera/muzzle parallax near cover.** The crosshair ray starts at the camera
+  and the bullet starts at the muzzle, roughly a metre apart, so at a cover edge
+  the two can disagree about what is blocked. This is inherent to third person
+  rather than a defect, and every commercial TPS lives with some version of it.
+  Aiming at the muzzle's own line instead would decouple the shot from the
+  crosshair, which is worse.
+- The weapon mounts on the **chest**, not the hand. Hanging it off the hand makes
+  it inherit the whole arm chain's rotation and need a counter-transform that
+  breaks whenever an arm angle is touched. The arms are posed to meet the weapon
+  instead. A real rigged GLB should bring its own aim poses and hand attachment.
+- Recoil fully recovers to the original aim, so a burst climbs and settles rather
+  than requiring the player to pull down. Predictable and testable, but less
+  demanding than a real shooter.
+- Damage is applied **client-side**. That is correct for a single-player phase and
+  the architecture is ready to move it, but nothing is authoritative yet.
+- No weapon switching, inventory, or second weapon — one rifle, by design.
+- Targets are stationary with no AI, and there is no player health, death or
+  respawn; those belong to Phases 5 and 6.
 
 ---
 
@@ -451,7 +586,7 @@ Questions are defined in `PROJECT.md` §6. Nothing below may be assumed.
 | Phase | Blocked by |
 | ----- | ---------- |
 | 1 | ✅ complete — Q9, Q12 and Q19 were answered by the Phase 1 brief |
-| 2 | *(retired — merged into Phase 1)* |
+| 2 | ✅ complete |
 | 3 | Q13 |
 | 4 | Q1 |
 | 5 | Q4, Q5, Q6, Q7 |
@@ -480,3 +615,7 @@ Architectural decisions that shaped the plan. Detailed records go in `docs/adr/`
 | 2026-08-10 | `shared` consumed via path alias rather than a built package | Removes a build step and keeps HMR across the package boundary. The one-way import rule is unaffected. |
 | 2026-08-10 | Collision does not write back into horizontal velocity | Doing so starves the character controller's step-up logic, making stairs unclimbable. `measuredSpeed` carries the real speed to animation and the HUD instead. |
 | 2026-08-10 | Stair treads sized to exceed the capsule diameter | A 0.55 m tread under a 0.68 m capsule cannot be stood on, and Rapier correctly refuses to autostep onto it. |
+| 2026-08-10 | Weapon rules live in `shared/combat`, orchestration in the client | Phase 4 moves damage behind server authority; the rules must move without being rewritten. |
+| 2026-08-10 | Camera orientation set from yaw/pitch, not `lookAt(pivot)` | With a shoulder offset, looking at the pivot makes the view direction depend on boom length, so aiming rotated the crosshair off target. |
+| 2026-08-10 | Weapon mounts on the chest joint, not the hand | Hand mounting inherits the arm chain's rotation and needs a counter-transform that breaks whenever an arm angle changes. |
+| 2026-08-10 | Recoil is a decaying view offset, not a write to the player's pitch | A burst climbs and settles by itself; writing it into pitch would permanently re-aim the player every burst. |

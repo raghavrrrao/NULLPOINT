@@ -19,7 +19,37 @@ export interface GameSnapshot {
   drawCalls: number;
   characterSource: string;
   standHeight: number;
+
+  // --- Combat (Phase 2) ---
+  aiming: boolean;
+  aimAmount: number;
+  fov: number;
+  weaponId: string;
+  weaponState: string;
+  magazine: number;
+  reserve: number;
+  ammo: string;
+  shotsFired: number;
+  recoilPitch: number;
+  muzzleFlashVisible: boolean;
+  muzzleFlashCount: number;
+  effectCount: number;
+  aimTargetId: string;
+  lastShot: {
+    hit: boolean;
+    onTarget: boolean;
+    targetId: string;
+    damage: number;
+    distance: number;
+    killed: boolean;
+  };
+  audioReady: boolean;
+  audioPlays: number;
+  targets: Array<{ id: string; health: number; maxHealth: number; alive: boolean }>;
 }
+
+/** Mouse sensitivity from `CAMERA_CONFIG`, needed to convert angles to pixels. */
+export const MOUSE_SENSITIVITY = 0.0022;
 
 /** Collects console errors and page exceptions for the lifetime of a test. */
 export class ConsoleWatcher {
@@ -197,4 +227,63 @@ export async function holdKey(page: Page, key: string, frameCount: number): Prom
 
 export function horizontalDistance(a: GameSnapshot, b: GameSnapshot): number {
   return Math.hypot(b.position.x - a.position.x, b.position.z - a.position.z);
+}
+
+function wrap(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+/**
+ * Points the crosshair at a world position by moving the mouse.
+ *
+ * Solves for the yaw and pitch that put screen centre on the point, then feeds
+ * the difference in as a mouse delta — the same path a player's input takes.
+ * Iterated a few times because the camera position itself moves as it turns.
+ */
+export async function aimAt(page: Page, x: number, y: number, z: number): Promise<void> {
+  for (let i = 0; i < 6; i++) {
+    const state = await snapshot(page);
+    const [cx, cy, cz] = state.cameraPosition;
+    let dx = x - cx;
+    let dy = y - cy;
+    let dz = z - cz;
+    const length = Math.hypot(dx, dy, dz);
+    if (length < 1e-6) return;
+    dx /= length;
+    dy /= length;
+    dz /= length;
+
+    // Matches the camera's own convention: forward is (−sin yaw, −cos yaw) and
+    // positive pitch looks down.
+    const wantYaw = Math.atan2(-dx, -dz);
+    const wantPitch = -Math.asin(Math.max(-1, Math.min(1, dy)));
+    const deltaYaw = wrap(wantYaw - state.cameraYaw);
+    const deltaPitch = wantPitch - state.cameraPitch;
+    if (Math.abs(deltaYaw) < 1e-4 && Math.abs(deltaPitch) < 1e-4) break;
+
+    await applyMouseDelta(page, -deltaYaw / MOUSE_SENSITIVITY, deltaPitch / MOUSE_SENSITIVITY);
+    await frames(page, 2);
+  }
+  await frames(page, 3);
+}
+
+/** Restores every training target to full health. */
+export async function resetTargets(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __NULLPOINT__: { resetTargets(): void } }).__NULLPOINT__.resetTargets();
+  });
+  await frames(page, 2);
+}
+
+/** Engages pointer lock, which mouse-button input requires. */
+export async function engagePointerLock(page: Page): Promise<boolean> {
+  await page.locator("canvas").click();
+  await frames(page, 6);
+  return page.evaluate(() => document.pointerLockElement !== null);
+}
+
+export function findTarget(state: GameSnapshot, id: string): { id: string; health: number; maxHealth: number; alive: boolean } {
+  const target = state.targets.find((t) => t.id === id);
+  if (target === undefined) throw new Error(`no training target named ${id}`);
+  return target;
 }

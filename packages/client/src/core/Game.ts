@@ -3,14 +3,21 @@ import {
   PLAYER_CONFIG,
   createLogger,
   createMoveIntent,
+  formatAmmo,
   vec3,
+  wrapAngle,
   type MoveIntent,
 } from "@nullpoint/shared";
+import * as THREE from "three";
 
+import { createAudioSystem, type AudioSystem } from "../audio/AudioSystem.ts";
 import { loadCharacterAsset, type CharacterAsset } from "../character/CharacterAsset.ts";
+import { DamageableRegistry } from "../combat/DamageableRegistry.ts";
+import { WeaponSystem } from "../combat/WeaponSystem.ts";
 import { FpsMeter } from "../debug/FpsMeter.ts";
 import { Player } from "../entities/Player.ts";
-import { InputManager } from "../input/InputManager.ts";
+import { InputAction, InputManager } from "../input/InputManager.ts";
+import { CombatHud } from "../ui/CombatHud.ts";
 import { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 import { Renderer } from "../render/Renderer.ts";
 import { createSceneEnvironment, type SceneEnvironment } from "../render/SceneEnvironment.ts";
@@ -26,6 +33,9 @@ export interface GameElements {
   readonly container: HTMLElement;
   readonly hud: HTMLElement;
   readonly lockOverlay: HTMLElement;
+  readonly crosshair: HTMLElement;
+  readonly hitMarker: HTMLElement;
+  readonly ammo: HTMLElement;
 }
 
 /**
@@ -49,6 +59,13 @@ export class Game {
   private readonly loop: GameLoop;
   private readonly fps = new FpsMeter();
 
+  private readonly damageables = new DamageableRegistry();
+  private readonly audio: AudioSystem;
+  private readonly weapon: WeaponSystem;
+  private readonly combatHud: CombatHud;
+  private readonly cameraWorldPosition = new THREE.Vector3();
+  private readonly cameraWorldDirection = new THREE.Vector3();
+
   private readonly intent: MoveIntent = createMoveIntent();
   private readonly mouseDelta = { x: 0, y: 0 };
   private physicsMs = 0;
@@ -61,7 +78,7 @@ export class Game {
 
     this.renderer = new Renderer(elements.container);
     this.environment = createSceneEnvironment();
-    this.arena = new Arena(physics);
+    this.arena = new Arena(physics, this.damageables);
     this.environment.scene.add(this.arena.group);
 
     this.player = new Player(
@@ -82,11 +99,33 @@ export class Game {
       CAMERA_CONFIG.pivotHeight,
     );
 
+    this.audio = createAudioSystem();
+    this.weapon = new WeaponSystem(physics, this.damageables, this.audio, {
+      // Parented to the right hand so the rifle inherits the character's
+      // movement, rotation and animation without any per-frame bookkeeping.
+      attachTo: this.player.weaponAttachment,
+      ignoreCollider: this.player.characterCollider,
+    });
+    // Impact marks and tracers are world-space, so they hang off the scene
+    // rather than the weapon — otherwise they would follow the gun around.
+    this.environment.scene.add(this.weapon.effectsGroup);
+
     this.input = new InputManager(this.renderer.domElement);
     this.input.onPointerLockChanged(({ locked }) => {
       elements.lockOverlay.hidden = locked;
+      // Browsers only allow audio to start from a user gesture.
+      if (locked) this.audio.resume();
     });
-    elements.lockOverlay.addEventListener("click", () => this.input.requestPointerLock());
+    elements.lockOverlay.addEventListener("click", () => {
+      this.input.requestPointerLock();
+      this.audio.resume();
+    });
+
+    this.combatHud = new CombatHud({
+      crosshair: elements.crosshair,
+      hitMarker: elements.hitMarker,
+      ammo: elements.ammo,
+    });
 
     this.hudBody = DebugHud.mountTitle(elements.hud);
     this.hud = new DebugHud(this.hudBody);
@@ -124,10 +163,30 @@ export class Game {
   private fixedUpdate(dt: number): void {
     const started = performance.now();
 
-    this.input.sampleIntent(this.camera.yaw, this.intent);
+    this.input.sampleIntent(this.camera.viewYaw, this.intent);
+    // Aiming slows the character. The multiplier rides on the intent so the
+    // movement simulation never has to know a weapon exists.
+    this.intent.speedMultiplier = this.intent.aim
+      ? this.weapon.definition.aimMoveSpeedMultiplier
+      : 1;
     this.player.fixedUpdate(this.intent, dt);
-    // Refreshes the query pipeline the camera and headroom sweeps read from.
+
+    // Refreshes the query pipeline the camera, headroom and hitscan read from.
+    // Stepped before the weapon so shots trace against this tick's positions.
     this.physics.step();
+
+    this.renderer.camera.getWorldPosition(this.cameraWorldPosition);
+    this.renderer.camera.getWorldDirection(this.cameraWorldDirection);
+    this.weapon.fixedUpdate(
+      this.input.wasPressed(InputAction.Fire),
+      this.input.isHeld(InputAction.Fire),
+      this.input.wasPressed(InputAction.Reload),
+      this.intent.aim,
+      this.cameraWorldPosition,
+      this.cameraWorldDirection,
+      dt,
+    );
+
     this.input.endTick();
 
     this.physicsMs = performance.now() - started;
@@ -138,8 +197,23 @@ export class Game {
 
     this.input.consumeMouseDelta(this.mouseDelta);
     this.camera.applyMouseDelta(this.mouseDelta.x, this.mouseDelta.y);
+    this.camera.setAiming(this.intent.aim);
+    // Recoil is a view offset that decays, so the shot climbs and settles back
+    // instead of permanently re-aiming the player.
+    this.camera.setRecoil(this.weapon.recoil.pitch, this.weapon.recoil.yaw);
 
     this.player.render(alpha, dt);
+    // Applied after the animation mixer so the weapon pose wins on the bones it
+    // touches, leaving legs and hips entirely to the locomotion clips.
+    this.player.applyWeaponPose(
+      this.intent.aim,
+      wrapAngle(this.camera.viewYaw - this.player.state.yaw),
+      this.camera.viewPitch,
+      this.weapon.recoil.pitch,
+      dt,
+    );
+    this.weapon.render(dt);
+    this.arena.update(dt);
 
     const p = this.player.object.position;
     this.camera.update(
@@ -152,6 +226,11 @@ export class Game {
     this.environment.update(p.x, p.z);
 
     this.renderer.render(this.environment.scene);
+
+    if (this.weapon.consumeHitMarker()) {
+      this.combatHud.showHitMarker(this.weapon.consumeKillMarker());
+    }
+    this.combatHud.update(this.weapon.runtime, this.camera.aimAmount, dt);
 
     this.hud.update(
       {
@@ -167,6 +246,14 @@ export class Game {
         triangles: this.renderer.triangles,
         physicsMs: this.physicsMs,
         characterSource: this.characterSource,
+        weaponName: this.weapon.definition.id,
+        magazine: this.weapon.runtime.magazine,
+        reserve: this.weapon.runtime.reserve,
+        weaponState: this.weapon.runtime.state,
+        aiming: this.weapon.runtime.aiming,
+        aimTarget: this.weapon.currentAimTargetId,
+        lastDamage: this.weapon.lastShotOutcome.damage,
+        lastTarget: this.weapon.lastShotOutcome.targetId,
       },
       performance.now(),
     );
@@ -194,7 +281,38 @@ export class Game {
       drawCalls: this.renderer.drawCalls,
       characterSource: this.characterSource,
       standHeight: PLAYER_CONFIG.standHeight,
+
+      aiming: this.weapon.runtime.aiming,
+      aimAmount: this.camera.aimAmount,
+      fov: this.renderer.camera.fov,
+      weaponId: this.weapon.definition.id,
+      weaponState: this.weapon.runtime.state,
+      magazine: this.weapon.runtime.magazine,
+      reserve: this.weapon.runtime.reserve,
+      ammo: formatAmmo(this.weapon.runtime),
+      shotsFired: this.weapon.runtime.shotsFired,
+      recoilPitch: this.weapon.recoil.pitch,
+      muzzle: this.weapon.muzzleWorldPosition(this.cameraWorldPosition.clone()).toArray(),
+      grip: this.weapon.gripWorldPosition(this.cameraWorldPosition.clone()).toArray(),
+      muzzleFlashVisible: this.weapon.muzzleFlashVisible,
+      muzzleFlashCount: this.weapon.muzzleFlashCount,
+      effectCount: this.weapon.effects.activeCount,
+      aimTargetId: this.weapon.currentAimTargetId,
+      lastShot: { ...this.weapon.lastShotOutcome },
+      audioReady: this.audio.isReady,
+      audioPlays: this.audio.playCount,
+      targets: this.arena.targets.map((target) => ({
+        id: target.damageableId,
+        health: target.health,
+        maxHealth: target.maxHealth,
+        alive: target.isAlive,
+      })),
     };
+  }
+
+  /** Development hook: restores every training target to full health. */
+  resetTargets(): void {
+    this.arena.resetTargets();
   }
 
   /** Development hook: pointer lock cannot be driven from an automated test. */
@@ -220,6 +338,8 @@ export class Game {
     this.stop();
     window.removeEventListener("keydown", this.onDebugKey);
     this.input.dispose();
+    this.weapon.dispose();
+    this.audio.dispose();
     this.player.dispose();
     this.arena.dispose();
     this.renderer.dispose();

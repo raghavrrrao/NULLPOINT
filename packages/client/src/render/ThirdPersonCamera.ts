@@ -37,7 +37,6 @@ export class ThirdPersonCamera {
 
   private readonly desiredPosition = new THREE.Vector3();
   private readonly offsetDirection = new THREE.Vector3();
-  private readonly lookTarget = new THREE.Vector3();
 
   /**
    * The player's collider, excluded from the collision sweep.
@@ -61,18 +60,68 @@ export class ThirdPersonCamera {
    */
   private collisionLift = 0;
 
+  /**
+   * Aim blend, 0 = hip, 1 = fully aimed. Drives boom length, shoulder offset,
+   * pivot height and field of view together so the transition reads as one move.
+   */
+  private aimBlend = 0;
+  private aimHeld = false;
+
+  /**
+   * Recoil applied to the *view* only, radians.
+   *
+   * Added on top of the player's own pitch and yaw rather than written into
+   * them, so the view climbs while firing and returns by itself. Writing it into
+   * `pitchAngle` would make every burst permanently re-aim the player.
+   */
+  private recoilPitch = 0;
+  private recoilYaw = 0;
+
   /** Excludes a collider — the followed character — from camera collision. */
   ignoreCollider(collider: RAPIER.Collider): void {
     this.ignoredCollider = collider;
   }
 
+  /** Requests the aim framing. Blended over several frames, never snapped. */
+  setAiming(aiming: boolean): void {
+    this.aimHeld = aiming;
+  }
+
+  /** Sets the current view recoil offset, radians. */
+  setRecoil(pitch: number, yaw: number): void {
+    this.recoilPitch = pitch;
+    this.recoilYaw = yaw;
+  }
+
+  /** 0 = hip, 1 = fully aimed. */
+  get aimAmount(): number {
+    return this.aimBlend;
+  }
+
+  /**
+   * Yaw actually used for the view this frame, including recoil.
+   *
+   * Movement is resolved against this rather than the raw stored yaw so that
+   * the character continues to move where the player is looking while the
+   * weapon is climbing.
+   */
+  get viewYaw(): number {
+    return wrapAngle(this.yawAngle + this.recoilYaw);
+  }
+
+  /** Pitch actually used for the view this frame, including recoil. */
+  get viewPitch(): number {
+    return clamp(this.pitchAngle - this.recoilPitch, config.minPitch, config.maxPitch);
+  }
+
   /** Points the boom from the pivot toward the camera at `pitch`. */
   private setDirection(pitch: number): void {
+    const yaw = this.viewYaw;
     const cosPitch = Math.cos(pitch);
     this.offsetDirection.set(
-      Math.sin(this.yawAngle) * cosPitch,
+      Math.sin(yaw) * cosPitch,
       Math.sin(pitch),
-      Math.cos(this.yawAngle) * cosPitch,
+      Math.cos(yaw) * cosPitch,
     );
   }
 
@@ -110,8 +159,22 @@ export class ThirdPersonCamera {
    * @param dt          Real frame delta, seconds.
    */
   update(targetX: number, targetY: number, targetZ: number, pivotHeight: number, dt: number): void {
+    this.aimBlend = damp(this.aimBlend, this.aimHeld ? 1 : 0, config.aimTransitionRate, dt);
+    const t = this.aimBlend;
+
+    // Boom, shoulder, pivot height and field of view all move together, so the
+    // aim transition reads as one motion rather than four independent ones.
+    const baseDistance = config.distance + (config.aimDistance - config.distance) * t;
+    const shoulderOffset =
+      config.shoulderOffset + (config.aimShoulderOffset - config.shoulderOffset) * t;
+    const fov = config.fov + (config.aimFov - config.fov) * t;
+    if (Math.abs(this.camera.fov - fov) > 1e-3) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+
     const goalX = targetX;
-    const goalY = targetY + pivotHeight;
+    const goalY = targetY + pivotHeight + config.aimPivotLift * t;
     const goalZ = targetZ;
 
     if (!this.pivotInitialised) {
@@ -126,37 +189,44 @@ export class ThirdPersonCamera {
     }
 
     // Over-the-shoulder lateral shift, perpendicular to the boom on the XZ plane.
-    const rightX = Math.cos(this.yawAngle);
-    const rightZ = -Math.sin(this.yawAngle);
-    const shoulderX = rightX * config.shoulderOffset;
-    const shoulderZ = rightZ * config.shoulderOffset;
+    const viewYaw = this.viewYaw;
+    const rightX = Math.cos(viewYaw);
+    const rightZ = -Math.sin(viewYaw);
+    const shoulderX = rightX * shoulderOffset;
+    const shoulderZ = rightZ * shoulderOffset;
 
     const originX = this.pivot.x + shoulderX;
     const originY = this.pivot.y;
     const originZ = this.pivot.z + shoulderZ;
 
     // Sweep the boom the player actually asked for, at their own pitch.
-    this.setDirection(this.pitchAngle);
-    const nominalAllowed = this.resolveCollision(originX, originY, originZ);
+    const viewPitch = this.viewPitch;
+    this.setDirection(viewPitch);
+    const nominalAllowed = this.resolveCollision(originX, originY, originZ, baseDistance);
 
     // Decide the lift from the *nominal* sweep, never from the lifted one. The
     // lifted boom finds more room, which would immediately argue for less lift,
     // which would find less room — a pumping loop. Measuring the unlifted boom
     // keeps the input to this decision independent of its own output.
-    const span = config.comfortableDistance - config.minDistance;
-    const shortfall = span > 1e-6 ? clamp((config.comfortableDistance - nominalAllowed) / span, 0, 1) : 0;
+    // The comfort threshold is capped by the boom length actually wanted. Aiming
+    // deliberately shortens the boom to 2.1 m; measured against a fixed 2.4 m
+    // that looked like an obstruction, so the anti-corner lift fired on every
+    // aim and tilted the view 13° up — throwing the shot off the crosshair.
+    const comfortable = Math.min(config.comfortableDistance, baseDistance);
+    const span = comfortable - config.minDistance;
+    const shortfall = span > 1e-6 ? clamp((comfortable - nominalAllowed) / span, 0, 1) : 0;
     // Aim at an absolute pitch, not an offset: when the player looks up their
     // own pitch already points the boom downward into the floor behind them, and
     // adding a constant would leave it there.
-    const liftTarget = Math.max(0, config.cornerPitch - this.pitchAngle) * shortfall;
+    const liftTarget = Math.max(0, config.cornerPitch - viewPitch) * shortfall;
     this.collisionLift = damp(this.collisionLift, liftTarget, config.liftDamp, dt);
 
     let allowed = nominalAllowed;
     if (this.collisionLift > 1e-3) {
       // Clamped short of vertical: at 90° the boom is directly overhead and
       // `lookAt` loses its up vector.
-      this.setDirection(Math.min(this.pitchAngle + this.collisionLift, MAX_EFFECTIVE_PITCH));
-      allowed = this.resolveCollision(originX, originY, originZ);
+      this.setDirection(Math.min(viewPitch + this.collisionLift, MAX_EFFECTIVE_PITCH));
+      allowed = this.resolveCollision(originX, originY, originZ, baseDistance);
     }
 
     // Pull in immediately when blocked, ease back out when clear: the reverse
@@ -173,8 +243,18 @@ export class ThirdPersonCamera {
     );
 
     this.camera.position.copy(this.desiredPosition);
-    this.lookTarget.set(originX, originY, originZ);
-    this.camera.lookAt(this.lookTarget);
+
+    // Orientation comes from yaw and pitch directly, never from looking at the
+    // pivot. With a lateral shoulder offset, "look at the pivot" makes the view
+    // direction depend on boom length — so entering aim, which shortens the boom
+    // and widens the offset, silently rotated the crosshair off whatever the
+    // player had it on. Screen centre must mean the aim direction and nothing
+    // else, because that is what hitscan traces along.
+    //
+    // The collision lift is folded in so that when the boom climbs over the
+    // character while cornered, the view tilts down to keep them in frame.
+    this.camera.rotation.order = "YXZ";
+    this.camera.rotation.set(-(this.viewPitch + this.collisionLift), this.viewYaw, 0);
   }
 
   /**
@@ -189,23 +269,28 @@ export class ThirdPersonCamera {
    * would place the camera behind the surface the sweep just found, which is
    * how a "minimum distance" turns into seeing through walls.
    */
-  private resolveCollision(originX: number, originY: number, originZ: number): number {
+  private resolveCollision(
+    originX: number,
+    originY: number,
+    originZ: number,
+    maxDistance: number,
+  ): number {
     const hit = this.physics.sweepSphere(
       { x: originX, y: originY, z: originZ },
       { x: this.offsetDirection.x, y: this.offsetDirection.y, z: this.offsetDirection.z },
       config.collisionRadius,
-      config.distance,
+      maxDistance,
       this.ignoredCollider,
     );
 
-    if (hit === null) return config.distance;
+    if (hit === null) return maxDistance;
 
     // The floor is itself capped by the contact distance. `minDistance` only
     // stops a degenerate near-zero boom putting the camera at the pivot; it must
     // never be able to place the camera *beyond* what the sweep just hit, which
     // is what pushes it through a wall when the player is cornered.
     const floor = Math.min(config.minDistance, Math.max(hit.distance, 0));
-    return clamp(hit.distance - config.collisionPadding, floor, config.distance);
+    return clamp(hit.distance - config.collisionPadding, floor, maxDistance);
   }
 
   /** Places the camera without smoothing. Used on spawn so frame one is correct. */
@@ -213,6 +298,7 @@ export class ThirdPersonCamera {
     this.pivotInitialised = false;
     this.currentDistance = config.distance;
     this.collisionLift = 0;
+    this.aimBlend = this.aimHeld ? 1 : 0;
     this.update(targetX, targetY, targetZ, pivotHeight, 1);
   }
 

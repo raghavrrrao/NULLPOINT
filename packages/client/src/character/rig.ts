@@ -17,6 +17,8 @@ export const BoneName = {
   ForearmL: "ForearmL",
   ArmR: "ArmR",
   ForearmR: "ForearmR",
+  HandL: "HandL",
+  HandR: "HandR",
   ThighL: "ThighL",
   ShinL: "ShinL",
   FootL: "FootL",
@@ -44,6 +46,10 @@ const JOINTS: Readonly<Record<BoneName, { parent: BoneName | null; offset: [numb
   ForearmL: { parent: "ArmL", offset: [0, -0.28, 0] },
   ArmR: { parent: "Chest", offset: [-0.2, 0.14, 0] },
   ForearmR: { parent: "ArmR", offset: [0, -0.28, 0] },
+  // Hands exist as explicit joints so a weapon has something to attach to that
+  // is not the forearm mesh. A real rigged GLB will provide equivalents.
+  HandL: { parent: "ForearmL", offset: [0, -0.26, 0] },
+  HandR: { parent: "ForearmR", offset: [0, -0.26, 0] },
 
   ThighL: { parent: "Hips", offset: [0.11, -0.06, 0] },
   ShinL: { parent: "ThighL", offset: [0, -0.44, 0] },
@@ -64,6 +70,8 @@ const LIMB_MESHES: Readonly<
   ForearmL: { size: [0.095, 0.26, 0.095], centre: [0, -0.13, 0] },
   ArmR: { size: [0.11, 0.28, 0.11], centre: [0, -0.14, 0], accent: true },
   ForearmR: { size: [0.095, 0.26, 0.095], centre: [0, -0.13, 0] },
+  HandL: { size: [0.085, 0.1, 0.09], centre: [0, -0.05, 0], accent: true },
+  HandR: { size: [0.085, 0.1, 0.09], centre: [0, -0.05, 0], accent: true },
   ThighL: { size: [0.145, 0.44, 0.15], centre: [0, -0.22, 0] },
   ShinL: { size: [0.125, 0.33, 0.13], centre: [0, -0.165, 0], accent: true },
   FootL: { size: [0.13, 0.09, 0.26], centre: [0, -0.045, -0.05] },
@@ -76,6 +84,17 @@ export interface HumanoidRig {
   /** Character origin, at the feet. Position and yaw are applied to this. */
   readonly root: THREE.Group;
   readonly bones: Readonly<Record<BoneName, THREE.Object3D>>;
+  /**
+   * Where a weapon attaches.
+   *
+   * Parented to the chest rather than the hand on purpose. Hanging it off the
+   * hand makes the weapon inherit the whole arm chain's rotation, so it points
+   * wherever the forearm happens to point and has to be counter-rotated by a
+   * transform that changes every time an arm angle is touched. Mounting on the
+   * chest — which is the bone that already follows the aim direction — keeps the
+   * barrel pointing where the character aims, and the arms are posed to meet it.
+   */
+  readonly weaponMount: THREE.Object3D;
   dispose(): void;
 }
 
@@ -127,6 +146,10 @@ export function createHumanoidRig(): HumanoidRig {
     bones[name].add(mesh);
   }
 
+  const weaponMount = new THREE.Object3D();
+  weaponMount.name = "weapon-mount";
+  bones.Chest.add(weaponMount);
+
   // Facing marker on the head, pointing along −Z.
   const noseGeometry = new THREE.BoxGeometry(0.07, 0.07, 0.09);
   geometries.push(noseGeometry);
@@ -138,6 +161,7 @@ export function createHumanoidRig(): HumanoidRig {
   return {
     root,
     bones,
+    weaponMount,
     dispose(): void {
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();

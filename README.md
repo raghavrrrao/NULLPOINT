@@ -3,9 +3,10 @@
 A browser-based, third-person, multiplayer shooter. Personal project, single
 developer, built for entertainment.
 
-> **Status: playable single-player prototype.** Phase 1 is complete — a
-> third-person character with movement, camera, physics and animation in a
-> grey-box arena. No multiplayer, no weapons, no Firebase yet.
+> **Status: playable single-player combat prototype.** Phases 1 and 2 are
+> complete — a third-person character with movement, camera, physics and
+> animation, plus an assault rifle with aiming, hitscan, damage, reloading and
+> training targets. No multiplayer and no Firebase yet.
 > See [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ---
@@ -76,6 +77,9 @@ Playwright needs its browser once: `npx playwright install chromium`.
 | ----- | ------ |
 | `W` `A` `S` `D` | Move, relative to the camera |
 | Mouse | Look (click the canvas to capture the cursor, `Esc` to release) |
+| Left mouse | Fire (automatic) |
+| Right mouse | Aim |
+| `R` | Reload |
 | `Shift` | Sprint |
 | `Alt` | Walk |
 | `Space` | Jump |

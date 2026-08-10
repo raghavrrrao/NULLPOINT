@@ -12,6 +12,9 @@ export const InputAction = {
   Walk: "Walk",
   Jump: "Jump",
   Crouch: "Crouch",
+  Fire: "Fire",
+  Aim: "Aim",
+  Reload: "Reload",
 } as const;
 
 export type InputAction = (typeof InputAction)[keyof typeof InputAction];
@@ -40,6 +43,18 @@ export const DEFAULT_BINDINGS: Readonly<Record<string, InputAction>> = {
   ControlLeft: InputAction.Crouch,
   ControlRight: InputAction.Crouch,
   KeyC: InputAction.Crouch,
+  KeyR: InputAction.Reload,
+};
+
+/**
+ * Mouse buttons, by `MouseEvent.button`.
+ *
+ * Bound through the same action table as the keyboard so gameplay code never
+ * asks "was it a mouse button or a key" — it asks whether an action is held.
+ */
+export const DEFAULT_MOUSE_BINDINGS: Readonly<Record<number, InputAction>> = {
+  0: InputAction.Fire,
+  2: InputAction.Aim,
 };
 
 export interface PointerLockState {
@@ -57,6 +72,7 @@ export interface PointerLockState {
 export class InputManager {
   private readonly element: HTMLElement;
   private readonly bindings: Record<string, InputAction>;
+  private readonly mouseBindings: Record<number, InputAction> = { ...DEFAULT_MOUSE_BINDINGS };
   private readonly held = new Set<InputAction>();
   /** Actions pressed since the last consume — survives a sub-tick tap. */
   private readonly pressed = new Set<InputAction>();
@@ -76,6 +92,10 @@ export class InputManager {
     document.addEventListener("pointerlockerror", this.onPointerLockError);
     element.addEventListener("mousemove", this.onMouseMove);
     element.addEventListener("mousedown", this.onMouseDown);
+    window.addEventListener("mouseup", this.onMouseUp);
+    // Right-click is the aim button; without this the browser context menu
+    // opens over the game on every aim.
+    element.addEventListener("contextmenu", this.onContextMenu);
   }
 
   get isPointerLocked(): boolean {
@@ -100,8 +120,27 @@ export class InputManager {
     if (document.pointerLockElement !== null) document.exitPointerLock();
   }
 
-  private readonly onMouseDown = (): void => {
-    this.requestPointerLock();
+  private readonly onMouseDown = (event: MouseEvent): void => {
+    // The first click is spent capturing the pointer, not firing.
+    if (!this.locked) {
+      this.requestPointerLock();
+      return;
+    }
+    const action = this.mouseBindings[event.button];
+    if (action === undefined) return;
+    event.preventDefault();
+    this.held.add(action);
+    this.pressed.add(action);
+  };
+
+  private readonly onMouseUp = (event: MouseEvent): void => {
+    const action = this.mouseBindings[event.button];
+    if (action === undefined) return;
+    this.held.delete(action);
+  };
+
+  private readonly onContextMenu = (event: Event): void => {
+    event.preventDefault();
   };
 
   private readonly onPointerLockChange = (): void => {
@@ -170,8 +209,14 @@ export class InputManager {
     out.sprint = this.isHeld(InputAction.Sprint);
     out.walk = this.isHeld(InputAction.Walk);
     out.crouch = this.isHeld(InputAction.Crouch);
+    out.aim = this.isHeld(InputAction.Aim);
     out.jump = this.pressed.has(InputAction.Jump);
     return out;
+  }
+
+  /** True only on the tick the action went down. */
+  wasPressed(action: InputAction): boolean {
+    return this.pressed.has(action);
   }
 
   /** Clears edge-triggered state. Called once per simulation tick, after sampling. */
@@ -196,6 +241,8 @@ export class InputManager {
     document.removeEventListener("pointerlockerror", this.onPointerLockError);
     this.element.removeEventListener("mousemove", this.onMouseMove);
     this.element.removeEventListener("mousedown", this.onMouseDown);
+    this.element.removeEventListener("contextmenu", this.onContextMenu);
+    window.removeEventListener("mouseup", this.onMouseUp);
     this.lockChangeHandlers = [];
   }
 }

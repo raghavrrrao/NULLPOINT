@@ -94,6 +94,83 @@
         user-select: none;
       }
 
+      /* ---- Combat HUD. Player-facing, distinct from the development HUD. ---- */
+      #crosshair {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 26px;
+        height: 26px;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        --gap: 7px;
+      }
+
+      #crosshair span {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        background: #eaf2f7;
+        box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+        transition: background-color 120ms linear;
+      }
+
+      /* Four ticks around a centre dot; --gap animates with accuracy. */
+      #crosshair .v {
+        width: 2px;
+        height: 6px;
+        margin-left: -1px;
+      }
+      #crosshair .h {
+        width: 6px;
+        height: 2px;
+        margin-top: -1px;
+      }
+      #crosshair .up { transform: translate(0, calc(-100% - var(--gap))); }
+      #crosshair .down { transform: translate(0, var(--gap)); }
+      #crosshair .left { transform: translate(calc(-100% - var(--gap)), 0); }
+      #crosshair .right { transform: translate(var(--gap), 0); }
+      #crosshair .dot {
+        width: 2px;
+        height: 2px;
+        margin: -1px 0 0 -1px;
+        border-radius: 50%;
+        opacity: 0.85;
+      }
+
+      #crosshair.empty span { background: #e06a6a; }
+      #crosshair.reloading span { background: #d8b45c; }
+
+      #hit-marker {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 26px;
+        line-height: 1;
+        color: #f2f6f9;
+        text-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
+        pointer-events: none;
+        user-select: none;
+        opacity: 0;
+      }
+
+      #ammo {
+        position: absolute;
+        right: 26px;
+        bottom: 22px;
+        color: var(--hud-fg);
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+        pointer-events: none;
+        user-select: none;
+      }
+
+      #ammo.empty { color: #e06a6a; }
+      #ammo.reloading { color: #d8b45c; font-size: 18px; }
+
       /* ---- Click-to-play overlay ---- */
       #lock-overlay {
         position: absolute;
@@ -147,9 +224,19 @@
     <div id="app">
       <div id="debug-hud" data-testid="debug-hud"></div>
       <div id="controls-hint" data-testid="controls-hint">
-        WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp;
-        Alt walk &nbsp;·&nbsp; Space jump &nbsp;·&nbsp; Ctrl/C crouch &nbsp;·&nbsp; Esc release cursor
+        WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; LMB fire &nbsp;·&nbsp; RMB aim &nbsp;·&nbsp;
+        R reload &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Alt walk &nbsp;·&nbsp; Space jump &nbsp;·&nbsp;
+        Ctrl/C crouch &nbsp;·&nbsp; Esc release cursor
       </div>
+      <div id="crosshair" data-testid="crosshair">
+        <span class="v up"></span>
+        <span class="v down"></span>
+        <span class="h left"></span>
+        <span class="h right"></span>
+        <span class="dot"></span>
+      </div>
+      <div id="hit-marker" data-testid="hit-marker">&#10005;</div>
+      <div id="ammo" data-testid="ammo">30 / 120</div>
       <div id="lock-overlay" data-testid="lock-overlay">
         <h1>NULLPOINT</h1>
         <p>Click to play</p>

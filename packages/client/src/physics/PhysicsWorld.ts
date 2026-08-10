@@ -10,6 +10,18 @@ export interface CastHit {
   readonly distance: number;
 }
 
+/** A ray hit, with everything hitscan needs to resolve a shot. */
+export interface RayHit {
+  /** Distance from the ray origin, metres. */
+  distance: number;
+  /** World-space impact point. */
+  readonly point: { x: number; y: number; z: number };
+  /** Surface normal at the impact point. */
+  readonly normal: { x: number; y: number; z: number };
+  /** Handle of the collider that was hit, for damageable lookup. */
+  colliderHandle: number;
+}
+
 /**
  * The Rapier world and the queries the client needs against it.
  *
@@ -22,9 +34,22 @@ export class PhysicsWorld {
   readonly world: RAPIER.World;
   readonly rapier = RAPIER;
   private readonly identityRotation: RAPIER.Rotation = { x: 0, y: 0, z: 0, w: 1 };
+  /** Reused across casts so hitscan allocates nothing per shot. */
+  private readonly scratchRay: RAPIER.Ray;
 
   private constructor() {
     this.world = new RAPIER.World({ x: 0, y: 0, z: 0 });
+    this.scratchRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 });
+  }
+
+  /** Allocates a reusable ray-hit record for a caller to own. */
+  static createRayHit(): RayHit {
+    return {
+      distance: 0,
+      point: { x: 0, y: 0, z: 0 },
+      normal: { x: 0, y: 1, z: 0 },
+      colliderHandle: -1,
+    };
   }
 
   static async create(): Promise<PhysicsWorld> {
@@ -113,6 +138,48 @@ export class PhysicsWorld {
     );
     if (hit === null) return null;
     return { distance: hit.time_of_impact };
+  }
+
+  /**
+   * Casts a ray and reports the first collider hit.
+   *
+   * Writes into the caller's `out` object rather than allocating: hitscan runs
+   * up to a dozen times a second while the trigger is held, and the Phase 2
+   * brief bans per-shot allocation.
+   *
+   * `direction` must be unit length, so `timeOfImpact` is a distance in metres.
+   */
+  castRay(
+    origin: RAPIER.Vector,
+    direction: RAPIER.Vector,
+    maxDistance: number,
+    out: RayHit,
+    exclude?: RAPIER.Collider,
+  ): RayHit | null {
+    this.scratchRay.origin = origin;
+    this.scratchRay.dir = direction;
+
+    const hit = this.world.castRayAndGetNormal(
+      this.scratchRay,
+      maxDistance,
+      // `solid: true` — a ray starting inside a collider reports impact at the
+      // origin rather than passing through it.
+      true,
+      undefined,
+      undefined,
+      exclude,
+    );
+    if (hit === null) return null;
+
+    out.distance = hit.timeOfImpact;
+    out.point.x = origin.x + direction.x * hit.timeOfImpact;
+    out.point.y = origin.y + direction.y * hit.timeOfImpact;
+    out.point.z = origin.z + direction.z * hit.timeOfImpact;
+    out.normal.x = hit.normal.x;
+    out.normal.y = hit.normal.y;
+    out.normal.z = hit.normal.z;
+    out.colliderHandle = hit.collider.handle;
+    return out;
   }
 
   step(): void {

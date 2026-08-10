@@ -7,8 +7,8 @@ animations, audio, fonts, icons and HDRIs.
 > committed. No entry, no commit.**
 
 **Current state: no third-party assets are in use.** Every third-party table
-below is empty. The Phase 1 player character is a self-made procedural
-placeholder — see §6.
+below is empty. The player character, the rifle, the arena and all weapon audio
+are self-made placeholders — see §6.
 
 ---
 
@@ -133,6 +133,10 @@ completeness, not obligation.
 | Placeholder humanoid rig | `packages/client/src/character/rig.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
 | Placeholder locomotion clips | `packages/client/src/character/clips.ts` | Written by hand (Three.js keyframe tracks) | 2026-08-10 |
 | Grey-box arena | `packages/client/src/world/arenaLayout.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+| Placeholder assault rifle | `packages/client/src/combat/RifleModel.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+| Training range and targets | `packages/client/src/world/trainingRange.ts`, `TrainingTarget.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+| Muzzle flash glow texture | `packages/client/src/combat/MuzzleFlash.ts` | Generated at runtime on a 64 px canvas | 2026-08-10 |
+| Weapon sounds (fire, dry fire, reload, hit) | `packages/client/src/audio/AudioSystem.ts` | Synthesised at runtime with Web Audio | 2026-08-10 |
 
 ### 6.1 Why the player character is a placeholder
 
@@ -164,6 +168,32 @@ map:
 clip names case-insensitively against the usual Mixamo/Quaternius spellings, and
 warns about (rather than breaks on) any locomotion state the asset lacks. Until
 `VITE_CHARACTER_GLB` is set, **no network request for a character is made**.
+
+### 6.2 Why the rifle is a placeholder (Phase 2)
+
+Same reason and same rule. No weapon model with a verifiable licence is in the
+repository, and the Phase 2 brief forbids stalling the phase on asset
+acquisition or bypassing any download gate to obtain one.
+
+`RifleModel.ts` builds a low-poly rifle from eight boxes plus an empty at the
+barrel tip. The amber magazine matches the character's placeholder accents, so
+it reads as temporary at a glance.
+
+**To replace it with a real asset**, only `RifleModel.ts` changes: load the GLB,
+return its root and an object positioned at the muzzle. Nothing else in the
+combat system refers to the weapon's geometry — `WeaponSystem` only ever touches
+`root` and `muzzle`. Record the asset in §4.1 **before** committing it.
+
+### 6.3 Why the weapon audio is synthesised
+
+No licensed weapon audio is present. `AudioSystem` synthesises short
+approximations with Web Audio — a filtered noise burst plus a pitch sweep for
+the shot, filtered clicks for reload and dry fire.
+
+`GameSound` is the seam: combat code calls `play(GameSound.WeaponFire)` and
+knows nothing about how the sound is made, so swapping in real samples touches
+only `AudioSystem.ts`. There is also a silent fallback for when `AudioContext`
+is unavailable, so audio can never block combat.
 
 ---
 

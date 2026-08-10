@@ -28,13 +28,16 @@ test.describe("gravity and ground", () => {
   test("falls off an edge and lands on the floor below", async ({ page }) => {
     await startGame(page);
 
-    // Drop from above the elevated platform's outer edge.
+    // Drop from above the elevated platform. Recorded in-page: a fixed frame
+    // count is not a fixed amount of simulated time, and the fall can complete
+    // between two sampled frames on a slow renderer.
+    const recording = recordFrames(page, 40);
     await teleport(page, -14, 8, -14);
-    await frames(page, 6);
-    const midFall = await snapshot(page);
-    expect(midFall.grounded).toBe(false);
-    expect(midFall.velocity.y).toBeLessThan(0);
-    expect(["FALL", "JUMP"]).toContain(midFall.movementState);
+    const samples = await recording;
+
+    const falling = samples.filter((s) => !s.grounded && s.velocity.y < 0);
+    expect(falling.length, "expected frames descending in mid-air").toBeGreaterThan(0);
+    expect(falling.every((s) => s.movementState === "FALL" || s.movementState === "JUMP")).toBe(true);
 
     await settle(page, 300);
     const landed = await snapshot(page);

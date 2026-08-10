@@ -18,6 +18,18 @@ export interface MoveIntent {
   /** Explicit walk modifier — moves at `walkSpeed` instead of `runSpeed`. */
   walk: boolean;
   crouch: boolean;
+  /**
+   * True while aiming. Turns the character to face the camera rather than the
+   * direction of travel, so the weapon points where the player is looking.
+   */
+  aim: boolean;
+  /**
+   * Scales the selected movement speed, 1 = unmodified.
+   *
+   * Carried on the intent rather than read from a weapon, so the movement
+   * simulation stays free of any knowledge of weapons.
+   */
+  speedMultiplier: number;
   /** True only on the tick the jump was requested (edge, not level). */
   jump: boolean;
 }
@@ -30,6 +42,8 @@ export function createMoveIntent(): MoveIntent {
     sprint: false,
     walk: false,
     crouch: false,
+    aim: false,
+    speedMultiplier: 1,
     jump: false,
   };
 }

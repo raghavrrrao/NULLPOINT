@@ -26,8 +26,11 @@ async function bootstrap(): Promise<void> {
   const container = requireElement("app");
   const hud = requireElement("debug-hud");
   const lockOverlay = requireElement("lock-overlay");
+  const crosshair = requireElement("crosshair");
+  const hitMarker = requireElement("hit-marker");
+  const ammo = requireElement("ammo");
 
-  const game = await Game.create({ container, hud, lockOverlay });
+  const game = await Game.create({ container, hud, lockOverlay, crosshair, hitMarker, ammo });
   game.start();
 
   if (import.meta.env.DEV) {
@@ -41,6 +44,7 @@ async function bootstrap(): Promise<void> {
         applyMouseDelta: (dx: number, dy: number) => game.applyMouseDelta(dx, dy),
         teleport: (x: number, y: number, z: number) => game.teleport(x, y, z),
         hideOverlay: () => game.hideOverlay(),
+        resetTargets: () => game.resetTargets(),
       },
       configurable: true,
     });

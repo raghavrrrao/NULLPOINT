@@ -44,6 +44,8 @@ export interface PlayerConfig {
 
   /** Exponential rate at which the character turns to face movement. */
   readonly rotationDamp: number;
+  /** Exponential rate at which the character turns to face the aim direction. */
+  readonly aimRotationDamp: number;
 
   /** Capsule radius, m. */
   readonly radius: number;
@@ -98,6 +100,7 @@ export const PLAYER_CONFIG: PlayerConfig = {
   jumpBufferTime: 0.12,
 
   rotationDamp: 16,
+  aimRotationDamp: 22,
 
   radius: 0.34,
   standHeight: 1.8,

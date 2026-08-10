@@ -3,7 +3,10 @@ import * as THREE from "three";
 import { createLogger } from "@nullpoint/shared";
 
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
+import type { DamageableRegistry } from "../combat/DamageableRegistry.ts";
 import { ARENA_BOXES, SURFACE_COLOURS, type ArenaBox } from "./arenaLayout.ts";
+import { TrainingTarget } from "./TrainingTarget.ts";
+import { RANGE_BOXES, TRAINING_TARGETS } from "./trainingRange.ts";
 
 const log = createLogger("arena");
 
@@ -15,19 +18,42 @@ const log = createLogger("arena");
  */
 export class Arena {
   readonly group = new THREE.Group();
+  readonly targets: readonly TrainingTarget[];
   private readonly materials = new Map<number, THREE.MeshStandardMaterial>();
   private readonly geometry = new Map<string, THREE.BoxGeometry>();
 
-  constructor(physics: PhysicsWorld) {
+  constructor(physics: PhysicsWorld, damageables: DamageableRegistry) {
     this.group.name = "arena";
 
-    for (const box of ARENA_BOXES) {
+    const boxes = [...ARENA_BOXES, ...RANGE_BOXES];
+    for (const box of boxes) {
       this.group.add(this.createMesh(box));
       this.createCollider(physics, box);
     }
 
+    const targets: TrainingTarget[] = [];
+    for (const options of TRAINING_TARGETS) {
+      const target = new TrainingTarget(physics, options);
+      // Registered by collider handle so hitscan can resolve a raycast result
+      // back to the thing it hit without the physics layer knowing about targets.
+      damageables.register(target.colliderId, target);
+      this.group.add(target.group);
+      targets.push(target);
+    }
+    this.targets = targets;
+
     this.group.add(this.createGridOverlay());
-    log.info(`built ${ARENA_BOXES.length} boxes with matching colliders`);
+    log.info(`built ${boxes.length} boxes and ${targets.length} targets with matching colliders`);
+  }
+
+  /** @param dt Real frame delta, seconds. */
+  update(dt: number): void {
+    for (const target of this.targets) target.update(dt);
+  }
+
+  /** Restores every target to full health. Development hook. */
+  resetTargets(): void {
+    for (const target of this.targets) target.reset();
   }
 
   private materialFor(colour: number): THREE.MeshStandardMaterial {
@@ -90,6 +116,7 @@ export class Arena {
   }
 
   dispose(): void {
+    for (const target of this.targets) target.dispose();
     for (const geometry of this.geometry.values()) geometry.dispose();
     for (const material of this.materials.values()) material.dispose();
     this.geometry.clear();

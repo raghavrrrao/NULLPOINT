@@ -38,6 +38,17 @@ export interface CameraConfig {
   readonly cornerPitch: number;
   /** Rate at which the lift eases in and out. */
   readonly liftDamp: number;
+
+  /** Boom length while aiming, m. */
+  readonly aimDistance: number;
+  /** Lateral shoulder offset while aiming, m. Wider, to clear the character. */
+  readonly aimShoulderOffset: number;
+  /** Vertical pivot lift while aiming, m. Raises the view toward the sights. */
+  readonly aimPivotLift: number;
+  /** Field of view while aiming, degrees. */
+  readonly aimFov: number;
+  /** Rate at which the aim transition eases in and out. */
+  readonly aimTransitionRate: number;
   /** Pivot height above the character's feet while standing, m. */
   readonly pivotHeight: number;
   /** Pivot height above the character's feet while crouched, m. */
@@ -79,6 +90,15 @@ export const CAMERA_CONFIG: CameraConfig = {
   // at 27° almost nothing is recovered, at 72° it is over three times the gap.
   cornerPitch: 1.25,
   liftDamp: 9,
+
+  aimDistance: 2.1,
+  aimShoulderOffset: 0.8,
+  // Kept small on purpose: with the view direction fixed by yaw and pitch, any
+  // camera translation slides the world point under the crosshair.
+  aimPivotLift: 0.06,
+  aimFov: 54,
+  aimTransitionRate: 11,
+
   pivotHeight: 1.62,
   crouchPivotHeight: 1.02,
   shoulderOffset: 0.55,

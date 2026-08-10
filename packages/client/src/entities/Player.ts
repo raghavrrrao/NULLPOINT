@@ -18,6 +18,7 @@ import {
 
 import { AnimationController } from "../character/AnimationController.ts";
 import type { CharacterAsset } from "../character/CharacterAsset.ts";
+import { WeaponPose } from "../character/weaponPose.ts";
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 
 const config = PLAYER_CONFIG;
@@ -43,6 +44,8 @@ export class Player {
   private readonly controller: RAPIER.KinematicCharacterController;
   private readonly animation: AnimationController;
   private readonly asset: CharacterAsset;
+  private readonly pose: WeaponPose | null;
+  private readonly weaponJoint: THREE.Object3D;
 
   private readonly requested: Vec3 = vec3();
   private readonly applied: Vec3 = vec3();
@@ -73,6 +76,38 @@ export class Player {
     this.object.position.set(spawn.x, spawn.y, spawn.z);
 
     this.animation = new AnimationController(asset);
+
+    // The weapon mounts on the chest joint the rig provides. A GLB without one
+    // falls back to the character root, so the weapon is still visible and still
+    // follows the character.
+    this.weaponJoint = asset.rig?.weaponMount ?? asset.root;
+    this.pose = asset.rig !== null ? new WeaponPose(asset.rig) : null;
+  }
+
+  /** Joint a weapon should be parented to. */
+  get weaponAttachment(): THREE.Object3D {
+    return this.weaponJoint;
+  }
+
+  /** 0 = carrying, 1 = fully aimed. */
+  get aimBlend(): number {
+    return this.pose?.aimBlend ?? 0;
+  }
+
+  /**
+   * Applies the upper-body weapon pose.
+   *
+   * Called after {@link render} so it overrides the bones the animation mixer
+   * has just written, leaving the legs to the locomotion clips.
+   */
+  applyWeaponPose(
+    aiming: boolean,
+    yawOffset: number,
+    pitch: number,
+    recoilPitch: number,
+    dt: number,
+  ): void {
+    this.pose?.apply(aiming, yawOffset, pitch, recoilPitch, dt);
   }
 
   /**

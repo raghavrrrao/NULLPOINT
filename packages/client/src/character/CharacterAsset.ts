@@ -4,7 +4,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MovementState, PLAYER_CONFIG, createLogger } from "@nullpoint/shared";
 
 import { createPlaceholderClips } from "./clips.ts";
-import { createHumanoidRig, normalizeToHeight } from "./rig.ts";
+import { createHumanoidRig, normalizeToHeight, type HumanoidRig } from "./rig.ts";
 
 const log = createLogger("character");
 
@@ -17,6 +17,14 @@ export interface CharacterAsset {
   readonly source: CharacterSource;
   /** States with no clip. `AnimationController` substitutes a fallback for each. */
   readonly missingStates: readonly MovementState[];
+  /**
+   * The bone hierarchy, when this is the procedural placeholder.
+   *
+   * `null` for a loaded GLB: the hand-authored aim pose is written against the
+   * placeholder's proportions and would not transfer. A real rigged asset should
+   * bring its own aim clips instead.
+   */
+  readonly rig: HumanoidRig | null;
   dispose(): void;
 }
 
@@ -91,6 +99,7 @@ function createPlaceholderCharacter(): CharacterAsset {
     clips: createPlaceholderClips(),
     source: "placeholder",
     missingStates: [],
+    rig,
     dispose: () => rig.dispose(),
   };
 }
@@ -126,6 +135,7 @@ async function loadGlbCharacter(url: string): Promise<CharacterAsset> {
     clips,
     source: "glb",
     missingStates,
+    rig: null,
     dispose: () => {
       root.traverse((object) => {
         if (object instanceof THREE.Mesh) object.geometry.dispose();
