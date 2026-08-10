@@ -70,7 +70,7 @@ NULLPOINT/
 │   │       ├── input/        Keyboard/mouse, pointer lock, input buffer
 │   │       ├── physics/      Rapier world, colliders, shape queries
 │   │       ├── world/        Arena description and construction
-│   │       ├── character/    Rig, animation clips, asset loading, animation state
+│   │       ├── character/    Asset loading, bone mapping, IK, weapon pose, clips
 │   │       ├── net/          WebSocket client, prediction, reconciliation (Phase 3)
 │   │       ├── entities/     Local view models of replicated entities
 │   │       ├── ui/           HUD, menus, DOM overlay
@@ -251,6 +251,141 @@ the safety net, and correctness never depends on the client matching exactly.
 
 ---
 
+### 4.6 The character (`character/`)
+
+The rendered character is an **adapter over an asset**, not a hard-coded rig. Four
+layers sit between a downloaded glTF and the gameplay code:
+
+```
+GLTF file  ──►  characterAssets  ──►  CharacterAsset  ──►  humanoidRig  ──►  weaponPose
+               (URL resolution)      (load, fallback)     (bone mapping)    (posing, IK)
+```
+
+1. **`characterAssets.ts` — URL resolution.** A glTF references its `.bin` and
+   textures by bare filename, and the bundler fingerprints emitted assets, so
+   those references cannot resolve on their own. Each file is imported for its
+   URL and a basename → URL map is handed to `GLTFLoader` via a `LoadingManager`.
+   The source asset is never copied into `public/` and never edited.
+2. **`CharacterAsset.ts` — loading.** Loads the glTF, disables frustum culling on
+   skinned meshes (they cull against an un-posed bounding box), matches whatever
+   animation clips the file carries against the movement states, and falls back
+   to the procedural placeholder rig if anything fails. The placeholder is kept
+   deliberately: it keeps the game runnable without an asset, and it keeps a
+   second rig honest about the assumptions in the posing code.
+3. **`humanoidRig.ts` — bone mapping.** Real bone names appear here and nowhere
+   else. Gameplay asks for `HumanoidBone.RightHand`, not `hand_r`. A rig missing
+   a gameplay-required joint fails the load rather than substituting a plausible
+   neighbour. Segment lengths for IK are **measured from the asset's own bind
+   pose**, never assumed.
+4. **`weaponPose.ts` — posing.** Places the weapon from the aim direction, then
+   solves both arms onto its grips.
+
+Three conventions make an arbitrary asset usable:
+
+- **Orientation.** The glTF specification places an asset's front on **+Z**;
+  NULLPOINT uses **−Z**. The correction is a single rotation on a model-root group
+  *above* the skeleton — never on individual bones, which would corrupt every
+  pose written afterwards. A frame node under the chest carries the inverse, so
+  weapon offsets stay written in character space.
+- **Scale.** The asset is normalised so its rendered height matches
+  `PLAYER_CONFIG.standHeight`, then shifted so its lowest vertex sits on the
+  character's ground plane. The physics capsule is authoritative; the mesh
+  conforms to it.
+- **Rest direction.** Two-bone IK needs to know which way a bone points at rest.
+  This differs per rig (the placeholder's limbs hang along −Y, an Unreal-style
+  skeleton's run along +Y), so it is a property of the arm chain rather than a
+  constant. Elbow pole targets are expressed in **character space** for the same
+  reason.
+
+Rendering-only. Nothing here writes simulation state.
+
+#### Locomotion
+
+The character has locomotion clips even though the asset ships none. They are
+**generated and retargeted**, not imported:
+
+```
+clips.ts (character-space poses)  →  retarget.ts (bind-pose composition)  →  AnimationClip
+```
+
+Poses are authored once in **character space** — "swing the thigh forward by
+0.4 rad about the character's own X axis" — and `retarget.ts` converts each key
+into the target skeleton's local bone frame with
+
+```
+local = parentBind⁻¹ · q · parentBind · localBind
+```
+
+Without that step a clip is welded to one skeleton: the placeholder's limbs hang
+along local −Y from identity rotations, while the Quaternius skeleton's run along
++Y from bind rotations nowhere near identity, so the same numbers produce a
+different pose on each. Retargeting also removes the sign-convention trap that
+has bitten this project twice, because every authored angle is now about one set
+of axes in one space.
+
+An asset's own clips always take precedence over the generated ones, per state,
+so dropping in a real animation library later replaces them piecemeal with no
+code change.
+
+`AnimationController` selects the clip from the simulated movement state. It
+resolves two cases the movement state machine does not distinguish: a crouch that
+is not moving (`CROUCH_IDLE`, so the feet do not shuffle on the spot) and
+touchdown (`LAND`, a one-shot compression).
+
+**No root motion, anywhere.** The mixer poses bones beneath the character root;
+the root itself is placed by the physics step. Animation reads movement state and
+never writes it.
+
+#### Foot grounding
+
+Joint angles do not know how long a particular character's legs are, so a clip
+authored against one rig puts another's feet through the floor or floats them
+above it. `footGrounding.ts` measures the lower foot each frame and offsets the
+pelvis to put it back where the bind pose has it — a value read from the asset,
+so it is right for any rig. The correction is damped rather than exact, which
+removes the average error without cancelling the vertical bob that gives a stride
+its weight, and it releases while airborne where feet should hang free.
+
+It moves one bone inside the model. The collider, the simulation and the camera
+are untouched.
+
+### 4.7 Combat entities (`entities/`)
+
+Three things can be damaged, and all three satisfy the same `Damageable`
+contract from `shared/combat` so that there is exactly one damage system:
+
+| Thing | Where | Notes |
+| ----- | ----- | ----- |
+| `TrainingTarget` | `world/` | Static, or travelling on a kinematic body |
+| `CombatBot` | `entities/` | Shoots back, dies, respawns |
+| `PlayerCombatant` | `entities/` | The player's own health and respawn |
+
+`PlayerCombatant` is separate from `Player` deliberately: `Player` owns
+simulation and rendering and has no business knowing what a hit point is. The
+bot's hitscan resolves against the player by the identical path the player's
+hitscan resolves against a target — collider handle → `DamageableRegistry` →
+`takeDamage`.
+
+**The bot reuses the player's machinery rather than approximating it.** It moves
+through the same `stepCharacterMovement` on the same kind of Rapier kinematic
+capsule, so it cannot accelerate impossibly, pass through walls or teleport; its
+damage runs through the same falloff curve. Its decisions come from
+`stepBotBrain` in `shared/sim`, which is pure — no Rapier, no Three.js — so the
+state machine is unit-tested without a browser and is where a server-side bot
+would run unchanged.
+
+Line of sight is a ray from the bot's muzzle to the player's centre of mass,
+excluding only the bot's own capsule. Anything else the ray reaches first means
+no shot. That is the whole of "the bot cannot shoot through cover".
+
+A travelling target sits on a **kinematic** body whose collider is placed
+directly, in the same call that moves its mesh. Issuing
+`setNextKinematicTranslation` from the render loop instead leaves the collider
+behind at its spawn until the next fixed step, and a plate that cannot be hit
+where it is drawn is worse than a stationary one.
+
+---
+
 ## 5. Server architecture
 
 ### 5.1 Process shape
@@ -419,11 +554,17 @@ Rules:
   PNG/JPG are acceptable placeholders until then.
 - The pipeline **validates** rather than trusts: correct scale (1 unit = 1 m),
   −Z forward, sane triangle and texture budgets, no unreferenced material.
+- **The pipeline does not exist yet.** Until it does, a third-party glTF is
+  consumed straight from `assets/source/` and adapted **at load time**
+  (§4.6) — axes, scale and bone names are corrected in code, never in the
+  file, so the committed asset stays byte-identical to its licensed source.
 - Built output is generated, never committed, never edited by hand.
 - Assets are loaded from the app's own origin. Nothing is hot-linked.
 - **Every third-party asset is entered in `ASSET_CREDITS.md` before it is
   committed.** No entry, no commit.
-- Character rigs and animation sets depend on **OPEN (Q10, Q12, Q19)**.
+- Character rigs and animation sets depend on **OPEN (Q10, Q12, Q19)**. The
+  current character is CC0 and carries no animation clips; see
+  `ASSET_CREDITS.md` §4.1.
 
 ---
 

@@ -86,7 +86,10 @@ Canonical documents — keep them in sync, never let them contradict each other:
 - Distance in **metres**, time in **seconds**, mass in **kilograms**,
   angles in **radians**.
 - Network timestamps in **milliseconds** as integers.
-- Model forward axis is **−Z** (glTF convention).
+- Model forward axis is **−Z**. Note this is *not* the glTF convention: the
+  glTF 2.0 specification places an asset's front on **+Z**. A conforming asset
+  therefore needs a half-turn at import, applied once at the character root and
+  never to individual bones.
 
 ---
 

@@ -154,6 +154,7 @@ export class WeaponSystem {
     return this.aimTargetId;
   }
 
+
   /** True once, for the frame after a damaging hit. */
   consumeHitMarker(): boolean {
     const pending = this.hitMarkerPending;

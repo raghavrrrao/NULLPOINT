@@ -6,7 +6,10 @@ developer, built for entertainment.
 > **Status: playable single-player combat prototype.** Phases 1 and 2 are
 > complete — a third-person character with movement, camera, physics and
 > animation, plus an assault rifle with aiming, hitscan, damage, reloading and
-> training targets. No multiplayer and no Firebase yet.
+> training targets, plus a combat sandbox: moving targets, a training bot that
+> chases and shoots back, and player health with death and respawn. The real
+> rigged humanoid has full generated locomotion — idle, walk, run, sprint,
+> crouch, jump, fall and landing. No multiplayer and no Firebase yet.
 > See [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ---
@@ -86,7 +89,13 @@ Playwright needs its browser once: `npx playwright install chromium`.
 | `Ctrl` or `C` | Crouch |
 | `F3` | Toggle the development HUD |
 
-The player character is a **clearly-marked placeholder** — no suitably licensed
-rigged humanoid is in the repository yet. To use a real one, drop a GLB in
-`packages/client/public/models/`, set `VITE_CHARACTER_GLB` to its URL, and record
-it in [ASSET_CREDITS.md](ASSET_CREDITS.md) first.
+The player character is Quaternius's **Superhero Male** (CC0), loaded from
+`assets/source/models/`. It ships with no animation clips, so locomotion is
+generated from a hand-authored pose library and retargeted onto its skeleton
+(`ASSET_CREDITS.md` §6). A procedural rig remains as the fallback if the asset
+fails to load.
+
+To use a different character, drop a GLB in `packages/client/public/models/`, set
+`VITE_CHARACTER_GLB` to its URL, add a bone map in
+`packages/client/src/character/humanoidRig.ts` if its skeleton is named
+differently, and record it in [ASSET_CREDITS.md](ASSET_CREDITS.md) first.

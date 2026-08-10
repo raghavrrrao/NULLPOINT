@@ -1,8 +1,11 @@
 # PROJECT_STATUS.md — NULLPOINT
 
 **Last updated:** 2026-08-10
-**Current phase:** Phase 2 — First Playable Combat ✅ **complete**
-**Next phase:** Phase 3 — Server Core & Transport ⛔ **not started, awaiting explicit go-ahead**
+**Current phase:** Natural TPP Locomotion + Combat Sandbox ✅ **complete**
+**Next phase:** ⛔ **none started — awaiting explicit go-ahead.** See the
+numbering note below: the developer used "Phase 3" for character integration,
+which collides with the roadmap's Phase 3 (Server Core & Transport). That phase
+is untouched and still not started.
 
 > **Phases 1 and 2 were redefined by the developer** on 2026-08-10. Phase 1 now
 > means "first playable single-player third-person prototype", merging the
@@ -11,6 +14,14 @@
 > keep their original numbering and scope, so the later Phase 5 (networked,
 > server-authoritative combat) still stands — Phase 2 is its single-player
 > foundation, not a replacement.
+
+> **Numbering collision, unresolved (2026-08-10).** The developer directed a
+> "Phase 3: Real Character Integration". The roadmap below already assigns
+> Phase 3 to Server Core & Transport. The character work is recorded under its
+> own heading, **out of roadmap order**, and no roadmap phase has been
+> renumbered — renumbering would invalidate 60-odd cross-references across the
+> canonical documents, and how to resolve it is the developer's call, not an
+> assumption to be made here. Recorded as **Q23** in `PROJECT.md` §6.
 
 > Per `CLAUDE.md` §2: **no phase begins until the developer explicitly says to
 > start it.** A phase is complete only when *every* exit criterion is true.
@@ -25,6 +36,8 @@
 | 0 | Foundation & Documentation | ✅ Complete |
 | 1 | Toolchain & First Playable Third-Person Prototype | ✅ Complete |
 | 2 | First Playable Combat (single-player) | ✅ Complete |
+| — | Real Character Integration *(out of roadmap order — see note above)* | ✅ Complete |
+| — | Natural TPP Locomotion + Combat Sandbox *(out of roadmap order)* | ✅ Complete |
 | 3 | Server Core & Transport | ⛔ Not started |
 | 4 | Networked Movement — **first playable multiplayer** | ⛔ Not started |
 | 5 | Combat | ⛔ Not started |
@@ -214,8 +227,9 @@ and `minDistance` is a small floor that is itself capped by the contact distance
   change; the rate is tunable via `CAMERA_CONFIG.liftDamp`.
 - The over-the-shoulder lateral offset is not reduced as the boom shortens, so a
   fully compressed camera is still offset ~0.55 m to the side.
-- The character is a **procedural placeholder**, not a licensed rigged asset.
-  See `ASSET_CREDITS.md` §6 and **Q10**/**Q11**.
+- ~~The character is a **procedural placeholder**, not a licensed rigged asset.~~
+  **Resolved 2026-08-10** by the character integration below; the procedural rig
+  is now only the fallback. See `ASSET_CREDITS.md` §4.1.
 - The client bundle is ~3.5 MB (~1.26 MB gzipped), dominated by Rapier's inlined
   WASM and Three.js. No code splitting yet — a Phase 9 concern.
 - `@types/three` pulls in a second, older copy of `@dimforge/rapier3d-compat`
@@ -418,11 +432,310 @@ bones without the weapon system knowing anything about placeholder geometry.
   directly behind the weapon is largely occluded — it points away from the
   camera and is foreshortened. A real character with human proportions fixes
   this; further tuning of the placeholder is not worth the effort
-  (`ASSET_CREDITS.md` §6.1).
+  (`ASSET_CREDITS.md` §6.1). **Resolved 2026-08-10** — the real character has
+  human proportions.
 - The support hand falls ~0.07 m short of its grip during sprint, where the
   weapon is carried across the body at the edge of the arm's reach.
 - There are no dedicated fire or reload animations; the weapon kick and the
   recoil offset carry that feedback.
+
+---
+
+## Real Character Integration ✅
+
+**Directed by the developer on 2026-08-10 as "Phase 3".** Out of roadmap order —
+see the numbering note at the top of this file. It does not begin, replace or
+partially deliver the roadmap's Phase 3 (Server Core & Transport) below, and it
+touches nothing networked.
+
+**Goal:** replace the procedural mannequin with a real rigged humanoid, driving
+it through the existing camera, movement, weapon and IK systems rather than
+rebuilding those around the asset.
+
+### The asset
+
+| Field | Value |
+| ----- | ----- |
+| Asset | Superhero Male, from *Universal Base Characters* |
+| Author | Quaternius |
+| Source | https://quaternius.itch.io/universal-base-characters |
+| License | **CC0 1.0 Universal** |
+| Format | glTF 2.0 + external `.bin` + 7 PNG textures |
+| Geometry | 3 skinned meshes, 14,318 triangles |
+| Skeleton | 65 bones, Unreal-style naming |
+| Animation clips | **none** |
+| Source height | 1.8196 m, feet at y = −0.0095 |
+| Axes | up +Y, forward +Z |
+
+Recorded in full in `ASSET_CREDITS.md` §4.1–4.2. The source files are used
+exactly as supplied — nothing renamed, moved or edited.
+
+### Delivered
+
+Four adapters, each isolating one mismatch between the asset and the engine.
+
+**Asset URL resolution** — `client/src/character/characterAssets.ts`. The glTF
+references its buffer and textures by bare filename, and Vite fingerprints
+emitted assets, so those relative paths cannot resolve in a build. Each file is
+imported for its URL so the bundler emits it, and a basename → URL map is fed to
+`GLTFLoader` through a `LoadingManager`. This also absorbs an exporter artefact
+where the glTF asks for `*_png.png` but the file on disk is `*.png`. Imports are
+explicit rather than globbed: the texture directory holds variants for other
+characters and other engines, and a glob shipped ~13 MB the character never
+references.
+
+**Semantic bone mapping** — `client/src/character/humanoidRig.ts`. A fixed
+vocabulary (root, pelvis, spine, chest, neck, head, and left/right upper arm,
+forearm, hand, thigh, shin, foot) mapped onto the asset's names. Gameplay code
+never sees a bone name. A missing required joint fails the load rather than
+substituting a plausible neighbour.
+
+| Semantic joint | Quaternius bone |
+| -------------- | --------------- |
+| root · pelvis | `root` · `pelvis` |
+| spine · chest | `spine_01` · `spine_03` |
+| neck · head | `neck_01` · `Head` |
+| upper arm · forearm · hand | `upperarm_*` · `lowerarm_*` · `hand_*` |
+| thigh · shin · foot | `thigh_*` · `calf_*` · `foot_*` |
+
+**Orientation** — the glTF specification places an asset's front on **+Z**;
+NULLPOINT uses **−Z** (`CLAUDE.md` §5, corrected in this change: it previously
+described −Z as the glTF convention, which is wrong). The half-turn is applied
+once to a model-root group above the skeleton, never to individual bones. A
+frame node under the chest carries the inverse, so weapon stance offsets stay
+written in character space and work unchanged for both rigs.
+
+**Scale and grounding** — normalised 1.8196 m → 1.8 m (×0.9892) to match
+`PLAYER_CONFIG.standHeight`, then shifted so the lowest vertex sits on the
+character's ground plane. The physics capsule was not touched.
+
+**Arm IK generalised** — the two-bone solver's mathematics is unchanged. What was
+hard-coded, the direction a bone points at rest, is now a per-chain property: the
+mannequin's limbs hang along −Y, the Quaternius bones run along +Y toward their
+child. Both rigs remain valid, and the placeholder is still the fallback when the
+asset fails to load. Two robustness fixes fell out of the real skeleton:
+`setFromUnitVectors` has no defined answer when a bone's rest axis is exactly
+opposite its target, so the bend plane's normal now picks the axis deliberately;
+and elbow poles are expressed in character space rather than chest-local space,
+because a pole written against a bone's own axes lands on the wrong side as soon
+as an asset with a different forward axis is loaded.
+
+### Measured
+
+Hand-to-grip error, metres, via the existing development hook:
+
+| Stance | Right | Left |
+| ------ | ----- | ---- |
+| Aiming — level, up, down | 0.0000 | 0.0000 |
+| Crouch + aim | 0.0000 | 0.0000 |
+| Jump + aim | 0.0000 | 0.0000 |
+| 360° sweep, worst sample | 0.0000 | 0.0000 |
+| Hip idle / running | 0.0000 | 0.0079 |
+| Sprinting | 0.0000 | 0.0346 |
+
+Barrel direction tracks `−sin(aimPitch)` while shouldered. Feet sit at 0.095 m
+(the ankle joint's natural height above the sole), symmetric to 2 dp. 58–60 FPS,
+~99 draw calls, ~29,700 triangles including the shadow pass — up from ~1,400
+with the placeholder.
+
+### Known limitations
+
+- **No animations.** The asset ships zero clips, so the character holds its bind
+  pose: legs straight, torso upright, arms driven entirely by the weapon IK.
+  Locomotion, jump and fall have no visual representation. Nothing here invents
+  animation data (`CLAUDE.md` §3).
+- **Crouch has no visual pose,** and this breaks one Phase 2 test — see
+  Regressions below. The capsule shrinks and the camera lowers correctly, so the
+  player can still move under low cover, but the mesh stays standing and the head
+  visibly sits above the crouched collider. A procedural knee-bend was attempted
+  and reverted: it moved the pelvis without the thigh following, which lifted the
+  feet ~0.09 m off the floor.
+- **The base character wears only shorts.** It is a base mesh, not a soldier.
+- The support hand sits ~0.03 m off its grip while sprinting, where the weapon is
+  carried across the body at the edge of the arm's 0.495 m reach.
+- Triangle count is the project's first real geometry budget. No measurable
+  frame-time cost at this scale.
+
+### Regressions
+
+- `combat.spec.ts` › "crouching folds the torso forward, not backward"
+  **fails.** It asserts that the crouch clip folds the spine; with no clips the
+  spine holds its bind rotation in both stances, so the two readings are
+  identical. The test has been left failing rather than weakened
+  (`CLAUDE.md` §9) — it is a true statement about behaviour the asset cannot
+  currently provide, and it should pass again once crouch clips exist.
+  **Decision needed from the developer:** leave it red, or skip it with a
+  documented reason until animations land.
+- `combat.spec.ts` › "deals the configured damage per hit" was flaky and is
+  fixed. It polled from the test process while holding an automatic trigger; a
+  poll costs a round trip, four hits destroy the plate, and the heavier scene
+  slowed the headless frame rate enough that the poll began landing after the
+  target died. It now samples per frame inside the page and asserts on the first
+  round fired — a tighter test, not a relaxed one.
+
+---
+
+## Natural TPP Locomotion + Combat Sandbox ✅
+
+**Directed by the developer on 2026-08-10 as "Phase 3B".** Out of roadmap order,
+like the character integration above; the roadmap's Phase 3 (Server Core &
+Transport) is still untouched and still not started. Nothing here is networked.
+
+**Goal:** make the third-person character actually move like one, then give it
+something to fight.
+
+### Locomotion
+
+The Quaternius character ships **no animation clips** and `assets/source/animations/`
+is empty, so per the brief's fallback the locomotion is generated rather than
+imported. No third-party animation was downloaded and no licence was assumed.
+
+What made this more than "write some keyframes" is that a clip written as joint
+angles is welded to one skeleton. The placeholder's limbs hang along local −Y
+from identity bind rotations; the Quaternius skeleton's run along +Y from bind
+rotations nowhere near identity. So poses are authored once in **character
+space** and retargeted per rig:
+
+```
+local = parentBind⁻¹ · q · parentBind · localBind
+```
+
+`clips.ts` holds the pose library, `retarget.ts` does the conversion. A useful
+side effect: every authored angle is now about one set of axes in one space,
+which retires the two-opposite-sign-conventions trap that caused both the
+inverted-aim and inverted-crouch bugs in earlier phases.
+
+**States delivered:** idle, walk, run, sprint, crouch idle, crouch move, jump,
+fall, landing. Crouch splits in two because the movement state machine does not
+distinguish a stationary crouch, and a shuffle played at zero speed is the
+classic sliding-feet artefact. Landing is a one-shot compression.
+
+**An asset's own clips always win**, per state, so a real animation library can
+replace these piecemeal with no code change.
+
+**Foot grounding.** Joint angles do not know how long a character's legs are.
+The same crouch that sat correctly on the placeholder pushed the Quaternius
+character's feet 26 mm through the floor, and the run cycle floated its planted
+foot 50 mm above it. Rather than retune every clip for every future character,
+`footGrounding.ts` measures the lower foot each frame and offsets the pelvis to
+put it back where the **asset's own bind pose** has it. Damped, not exact, so it
+removes the average error without cancelling the bob that gives a stride its
+weight; released while airborne.
+
+Measured, character space, metres:
+
+| State | Stride (fore/aft foot travel) | Lowest foot |
+| ----- | ----------------------------- | ----------- |
+| Idle | 0.007 | 0.094 |
+| Walk | 0.78 | 0.083 |
+| Run | 1.16 | 0.065 |
+| Sprint | 1.30 | 0.004 |
+| Crouch idle | 0.086 | 0.090 *(was 0.002)* |
+| Crouch move | 0.22 | 0.079 *(was −0.026 — through the floor)* |
+
+**No root motion.** The mixer poses bones beneath the character root; the root is
+placed by the physics step. An idle character drifts < 0.02 m over a full clip
+cycle, which is the assertion that proves it.
+
+### Weapon and animation layering
+
+Unchanged in architecture, and verified not to have regressed. The order is still
+
+```
+movement state → locomotion clip → body pose → weapon pose → arm IK → hands
+```
+
+The locomotion clips write the arm bones too; the weapon pose runs after the
+mixer and wins. Worst hand-to-grip error across idle, run, sprint, and aiming
+while running, backpedalling and strafing: **0.000 m trigger hand, 0.021 m
+support hand** (sprint, where the weapon is carried across the body at the edge
+of the arm's reach).
+
+### Combat sandbox
+
+**Two moving targets** on the existing `Damageable` contract — `MOVER_H` crosses
+the firing lane, `MOVER_V` rises and falls. Both sit on kinematic bodies whose
+colliders are placed in the same call that moves their meshes.
+
+Placing them was most of the work. Both had to stay off every static target's
+sight line from the firing line, or they would intermittently eat rounds aimed at
+a plate — the same defect the existing z-stagger exists to avoid, except
+intermittent, so it surfaces as a flaky test rather than an obvious one.
+`MOVER_H` ended up **above** the lane at 3.4 m: the lane is narrow and the sight
+lines to `MEDIUM` and `LONG` run down the middle of it, so no amount of shuffling
+it sideways would clear them, but 3.4 m clears them in elevation.
+
+**A training bot** (`BOT_ALPHA`), spawned at (−14, −25) — beyond its own
+`loseTargetRadius` from both the player spawn and the range firing line, so it
+never wanders into the range. Lifecycle: spawn → idle → detect → chase → engage →
+fire → take damage → die → respawn.
+
+It reuses the player's machinery rather than approximating it: the same
+`stepCharacterMovement`, the same kind of Rapier kinematic capsule, the same
+falloff curve and `Damageable` contract. Its decisions live in `shared/sim/botBrain.ts`,
+which is pure and has 12 unit tests.
+
+- Sight is required to **acquire** a target but not to keep chasing one, with a
+  2.5 s blind-pursuit window — otherwise stepping behind a crate is an off
+  switch rather than cover.
+- Engage/disengage radii differ (11 m / 14 m) so a player on the boundary does
+  not flicker the state every frame.
+- Fires only with a clear ray from its muzzle to the player's centre of mass.
+
+**Player health**: `PlayerCombatant`, 100 HP, 2.5 s respawn. Kept out of `Player`,
+which owns simulation and rendering and should not know what a hit point is.
+While dead, movement input and firing are both suppressed — the intent is
+blanked rather than the simulation skipped, so gravity and collision still run.
+
+Measured end to end: bot engages at 4 m, fires every 0.85 s for 12 damage, takes
+the player from 100 to 0 in nine rounds, player respawns at the arena spawn with
+full health. With the elevated platform between them: **zero rounds fired, zero
+damage**.
+
+### Tests
+
+| Suite | Count |
+| ----- | ----- |
+| `tests/unit/botBrain.test.ts` (new) | 12 |
+| `tests/e2e/locomotion.spec.ts` (new) | 10 |
+| `tests/e2e/sandbox.spec.ts` (new) | 12 |
+
+Unit total 110, up from 98.
+
+### Bugs found and fixed during this phase
+
+- **Foot-grounding ran away to its clamp.** It added the measured error to the
+  previous correction, but the mixer overwrites the pelvis every frame, so the
+  measurement is already uncorrected and the error *is* the whole correction.
+  Every clip now carries a pelvis track so there is always a clean base.
+- **Moving targets could not be hit where they were drawn.** Their colliders were
+  driven with `setNextKinematicTranslation` from the render loop, which is
+  applied by the next fixed step — the mesh moved and the collider stayed at its
+  spawn. Placed directly now, in the same call that moves the mesh.
+- **`poseAngles.spine` had become meaningless.** It read the bone's local
+  `rotation.x`, which is only interpretable when something writes it directly.
+  Retargeted clips compose bind orientation with the authored one, so on the
+  Quaternius rig a forward fold read as a *positive* local x. It now measures the
+  spine→chest direction in character space, which is the same measurement on any
+  rig. This is what the Phase 3 crouch-spine regression was really reporting.
+- **The Phase 3 crouch-spine test now passes**, since the crouch clip exists.
+
+### Known limitations
+
+- **The bot does not patrol.** Unaware, it stands still. The brief allowed
+  "IDLE/PATROL" and preferred simple deterministic behaviour; patrol routes would
+  need waypoints the arena does not have.
+- **No pathfinding.** The bot walks straight at the player and will press against
+  a wall or the elevated platform if one is in the way. It cannot climb.
+- **The bot has no character model or animation** — a capsule with a visor,
+  self-made, in the same spirit as the training plates.
+- **The bot's death is a lean, not an animation.**
+- **Sprint's planted foot comes within 4 mm of the floor** at the extreme of the
+  cycle. Nothing penetrates, but there is no margin left.
+- Locomotion is generated, not authored by an animator. It reads correctly and
+  the feet stay planted, but it is not production animation.
+- One bot, one spawn point. Nothing here is networked, and none of it has been
+  designed for a server to own yet.
 
 ---
 
@@ -688,3 +1001,11 @@ Architectural decisions that shaped the plan. Detailed records go in `docs/adr/`
 | 2026-08-10 | Recoil is a decaying view offset, not a write to the player's pitch | A burst climbs and settles by itself; writing it into pitch would permanently re-aim the player every burst. |
 | 2026-08-10 | Arms are solved by IK onto grips on the weapon, not posed by hand | Placing the weapon first and solving the hands onto it makes the grip correct by construction; the reverse order can only ever be approximated by tuning. |
 | 2026-08-10 | The legs turn on a deadzone, not toward the camera every frame | Rotating the whole character with the camera is what makes a third-person prototype feel like a turret. |
+| 2026-08-10 | Character bones reached through a semantic map, never by name | Swapping the asset must not touch gameplay code, and a rig missing a required joint should fail loudly rather than pose a guessed one. |
+| 2026-08-10 | The model's forward correction lives on a root group, not on bones | Rotating bones to face the character forward corrupts every pose written afterwards and cannot be undone when the asset is replaced. |
+| 2026-08-10 | The character asset is used unmodified; adaptation happens at load | Keeps the CC0 source verifiable against its origin and keeps the adaptation reviewable as code. |
+| 2026-08-10 | Elbow poles expressed in character space, not chest-local space | A pole written against a bone's own axes silently flips the elbow when an asset with a different forward axis is loaded. |
+| 2026-08-10 | Locomotion authored in character space and retargeted per rig | A clip written as joint angles is welded to one skeleton's bind pose and axis conventions; the same numbers pose two rigs differently. |
+| 2026-08-10 | Feet grounded by measurement, not by retuning clips per character | Joint angles do not know how long a character's legs are, and the alternative is redoing every clip for every future asset. |
+| 2026-08-10 | Bot decisions in `shared/sim`, bot body in the client | Keeps the state machine unit-testable without a browser, and puts it where a server-side bot would run unchanged. |
+| 2026-08-10 | Bot reuses the player's movement and damage code rather than its own | One set of combat rules; a bot with its own movement would drift out of agreement with the player's. |

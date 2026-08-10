@@ -57,12 +57,13 @@ test.describe("startup", () => {
     expect(distinctColours).toBeGreaterThan(8);
   });
 
-  test("uses the documented placeholder character", async ({ page }) => {
+  test("uses the documented character asset", async ({ page }) => {
     await startGame(page);
     const state = await snapshot(page);
-    // Phase 1 ships a placeholder; this assertion is expected to change when a
-    // licensed GLB is supplied (see ASSET_CREDITS.md).
-    expect(state.characterSource).toContain("PLACEHOLDER");
+    // Phase 1 shipped a procedural placeholder and this assertion said so; the
+    // licensed Quaternius character replaced it in Phase 3 (see ASSET_CREDITS.md).
+    // The placeholder remains as the fallback when the asset fails to load.
+    expect(state.characterSource).toBe("GLB");
   });
 
   test("survives a viewport resize", async ({ page }) => {

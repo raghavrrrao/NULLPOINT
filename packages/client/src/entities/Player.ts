@@ -18,6 +18,7 @@ import {
 
 import { AnimationController } from "../character/AnimationController.ts";
 import type { CharacterAsset } from "../character/CharacterAsset.ts";
+import { FootGrounding } from "../character/footGrounding.ts";
 import { WeaponPose, type PoseInput, type WeaponGrips } from "../character/weaponPose.ts";
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 
@@ -45,6 +46,7 @@ export class Player {
   private readonly animation: AnimationController;
   private readonly asset: CharacterAsset;
   private readonly pose: WeaponPose | null;
+  private readonly grounding: FootGrounding | null;
   private readonly weaponJoint: THREE.Object3D;
 
   private readonly requested: Vec3 = vec3();
@@ -82,6 +84,7 @@ export class Player {
     // visible and still follows the character.
     this.weaponJoint = asset.rig?.weaponSocket ?? asset.root;
     this.pose = asset.rig !== null ? new WeaponPose(asset.rig) : null;
+    this.grounding = asset.rig !== null ? new FootGrounding(asset.rig) : null;
   }
 
   /** Joint a weapon should be parented to. */
@@ -102,6 +105,31 @@ export class Player {
    */
   handGripError(): { right: number; left: number } {
     return this.pose?.gripError() ?? { right: -1, left: -1 };
+  }
+
+  /** Rendered character height, metres. */
+  get characterHeight(): number {
+    return this.asset.height;
+  }
+
+  /** Height of each foot above the character's ground plane, metres. */
+  footHeight(): { right: number; left: number } {
+    return this.pose?.footHeight() ?? { right: 0, left: 0 };
+  }
+
+  /** Both feet in character space, metres. Development hook. */
+  footPositions(): { right: [number, number, number]; left: [number, number, number] } {
+    return this.pose?.footPositions() ?? { right: [0, 0, 0], left: [0, 0, 0] };
+  }
+
+  /** The locomotion clip currently playing. Development hook. */
+  get animationClip(): string {
+    return this.animation.currentClip ?? "NONE";
+  }
+
+  /** Current foot-grounding correction, metres. Development hook. */
+  get groundingOffset(): number {
+    return this.grounding?.offset ?? 0;
   }
 
   /** Torso, head and spine X rotations, radians. Development hook. */
@@ -283,6 +311,9 @@ export class Player {
     this.visualCrouchBlend = damp(this.visualCrouchBlend, this.state.crouching ? 1 : 0, config.crouchDamp, dt);
 
     this.animation.update(this.state.movementState, this.horizontalSpeed, dt);
+    // After the mixer, before the weapon pose: the arms are then solved against
+    // the body height the character actually ends up at.
+    this.grounding?.update(this.state.grounded, dt);
   }
 
   dispose(): void {

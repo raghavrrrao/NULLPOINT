@@ -12,11 +12,11 @@ import * as THREE from "three";
  * accumulated joint angles, which avoids the sign and gimbal ambiguities that
  * make angle-based solvers flip when the target crosses behind the shoulder.
  *
- * Limb segments in this rig hang along local **−Y**, so "aim a bone at a point"
- * means rotating −Y onto the direction to that point.
+ * Which way a bone points at rest is a property of the rig, not of the solver:
+ * the procedural mannequin's limbs hang along local **−Y**, while the Quaternius
+ * skeleton's bones run along **+Y** toward their child. Each chain carries its
+ * own rest direction so both rigs stay valid.
  */
-
-const REST_DIRECTION = new THREE.Vector3(0, -1, 0);
 
 /** Scratch, module-level: this runs twice a frame and must not allocate. */
 const targetLocal = new THREE.Vector3();
@@ -39,6 +39,12 @@ export interface ArmChain {
   readonly hand?: THREE.Object3D | undefined;
   readonly upperLength: number;
   readonly lowerLength: number;
+  /**
+   * Unit direction a bone points at rest, in its own local space.
+   *
+   * Aiming a bone means rotating this onto the direction of its target.
+   */
+  readonly restDirection: THREE.Vector3;
 }
 
 /**
@@ -51,6 +57,28 @@ export interface ArmChain {
  *                  weapon's, so the hand does not sit on the grip at a
  *                  nonsensical angle.
  */
+/**
+ * Rotates `rest` onto `direction`.
+ *
+ * `setFromUnitVectors` has no defined answer when the two are exactly opposite —
+ * every axis perpendicular to them is a valid half turn — and silently picks one,
+ * which shows up as a limb twisted to a random roll. That happens in practice
+ * whenever a bone whose rest axis points up has to aim straight down, so the
+ * bend plane's normal is used to choose the axis deliberately.
+ */
+function aimBone(
+  out: THREE.Quaternion,
+  rest: THREE.Vector3,
+  direction: THREE.Vector3,
+  bendNormal: THREE.Vector3,
+): void {
+  if (rest.dot(direction) < -0.99999) {
+    out.setFromAxisAngle(bendNormal, Math.PI);
+    return;
+  }
+  out.setFromUnitVectors(rest, direction);
+}
+
 export function solveArmIK(
   chain: ArmChain,
   targetWorld: THREE.Vector3,
@@ -112,14 +140,14 @@ export function solveArmIK(
     .addScaledVector(poleComponent, height);
 
   upperDirection.copy(elbowLocal).sub(chain.upper.position).normalize();
-  chain.upper.quaternion.setFromUnitVectors(REST_DIRECTION, upperDirection);
+  aimBone(chain.upper.quaternion, chain.restDirection, upperDirection, poleComponent);
 
   // The forearm is aimed in the upper arm's space, so its rotation is relative
   // to whatever the shoulder just did.
   lowerDirection.copy(targetLocal).sub(elbowLocal).normalize();
   inverseUpper.copy(chain.upper.quaternion).invert();
   lowerDirection.applyQuaternion(inverseUpper);
-  chain.lower.quaternion.setFromUnitVectors(REST_DIRECTION, lowerDirection);
+  aimBone(chain.lower.quaternion, chain.restDirection, lowerDirection, poleComponent);
 
   if (chain.hand !== undefined && handWorldQuaternion !== undefined) {
     chain.lower.updateWorldMatrix(true, false);

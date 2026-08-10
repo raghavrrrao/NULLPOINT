@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-import { MovementState, PLAYER_CONFIG, createLogger } from "@nullpoint/shared";
+import { PLAYER_CONFIG, createLogger } from "@nullpoint/shared";
 
-import { createPlaceholderClips } from "./clips.ts";
+import { CHARACTER_GLTF_URL, resolveCharacterResource } from "./characterAssets.ts";
+import { createLocomotionClips, LocomotionClip } from "./clips.ts";
+import { buildHumanoidRig, QUATERNIUS_BONE_MAP } from "./humanoidRig.ts";
 import { createHumanoidRig, normalizeToHeight, type HumanoidRig } from "./rig.ts";
 
 const log = createLogger("character");
@@ -13,16 +15,20 @@ export type CharacterSource = "placeholder" | "glb";
 export interface CharacterAsset {
   /** Character origin at the feet; position and yaw are applied here. */
   readonly root: THREE.Object3D;
-  readonly clips: ReadonlyMap<MovementState, THREE.AnimationClip>;
+  readonly clips: ReadonlyMap<LocomotionClip, THREE.AnimationClip>;
   readonly source: CharacterSource;
-  /** States with no clip. `AnimationController` substitutes a fallback for each. */
-  readonly missingStates: readonly MovementState[];
   /**
-   * The bone hierarchy, when this is the procedural placeholder.
+   * Clips the asset itself supplied, as opposed to the generated locomotion that
+   * fills the rest. Empty for an asset that ships no animation.
+   */
+  readonly assetClips: readonly LocomotionClip[];
+  /** Rendered height after normalisation, metres. */
+  readonly height: number;
+  /**
+   * The gameplay rig — semantic joints, weapon socket and IK metrics.
    *
-   * `null` for a loaded GLB: the hand-authored aim pose is written against the
-   * placeholder's proportions and would not transfer. A real rigged asset should
-   * bring its own aim clips instead.
+   * Present for both the procedural placeholder and a mapped glTF skeleton, so
+   * the aim pose and arm IK run unchanged against either.
    */
   readonly rig: HumanoidRig | null;
   dispose(): void;
@@ -34,46 +40,57 @@ export interface CharacterAsset {
  * Covers the usual Mixamo and Quaternius spellings. Matching is
  * case-insensitive and ignores Mixamo's `mixamo.com|` track prefix.
  */
-const CLIP_NAME_CANDIDATES: Readonly<Record<MovementState, readonly string[]>> = {
-  [MovementState.Idle]: ["idle", "idle_a", "breathingidle", "standing"],
-  [MovementState.Walk]: ["walk", "walking", "walk_forward"],
-  [MovementState.Run]: ["run", "running", "jog", "run_forward"],
-  [MovementState.Sprint]: ["sprint", "sprinting", "runfast", "fastrun"],
-  [MovementState.Jump]: ["jump", "jump_start", "jumpup", "jumping"],
-  [MovementState.Fall]: ["fall", "falling", "fallidle", "jump_idle", "inair"],
-  [MovementState.Crouch]: ["crouch", "crouching", "crouchidle", "crouch_walk", "sneak"],
+const CLIP_NAME_CANDIDATES: Readonly<Record<LocomotionClip, readonly string[]>> = {
+  [LocomotionClip.Idle]: ["idle", "idle_a", "breathingidle", "standing"],
+  [LocomotionClip.Walk]: ["walk", "walking", "walk_forward"],
+  [LocomotionClip.Run]: ["run", "running", "jog", "run_forward"],
+  [LocomotionClip.Sprint]: ["sprint", "sprinting", "runfast", "fastrun"],
+  [LocomotionClip.Jump]: ["jump", "jump_start", "jumpup", "jumping"],
+  [LocomotionClip.Fall]: ["fall", "falling", "fallidle", "jump_idle", "inair"],
+  [LocomotionClip.Land]: ["land", "landing", "jump_land", "jumpdown"],
+  [LocomotionClip.CrouchIdle]: ["crouchidle", "crouch", "crouching", "sneakidle"],
+  [LocomotionClip.CrouchMove]: ["crouchwalk", "crouchmove", "sneak", "sneakwalk"],
 };
 
-const ALL_STATES: readonly MovementState[] = [
-  MovementState.Idle,
-  MovementState.Walk,
-  MovementState.Run,
-  MovementState.Sprint,
-  MovementState.Jump,
-  MovementState.Fall,
-  MovementState.Crouch,
-];
+const ALL_CLIPS: readonly LocomotionClip[] = Object.values(LocomotionClip);
 
 function normaliseClipName(name: string): string {
   const withoutPrefix = name.includes("|") ? (name.split("|").pop() ?? name) : name;
   return withoutPrefix.toLowerCase().replace(/[\s_-]/g, "");
 }
 
-function matchClips(clips: readonly THREE.AnimationClip[]): Map<MovementState, THREE.AnimationClip> {
+function matchClips(clips: readonly THREE.AnimationClip[]): Map<LocomotionClip, THREE.AnimationClip> {
   const byName = new Map<string, THREE.AnimationClip>();
   for (const clip of clips) byName.set(normaliseClipName(clip.name), clip);
 
-  const matched = new Map<MovementState, THREE.AnimationClip>();
-  for (const state of ALL_STATES) {
-    for (const candidate of CLIP_NAME_CANDIDATES[state]) {
+  const matched = new Map<LocomotionClip, THREE.AnimationClip>();
+  for (const slot of ALL_CLIPS) {
+    for (const candidate of CLIP_NAME_CANDIDATES[slot]) {
       const clip = byName.get(normaliseClipName(candidate));
       if (clip !== undefined) {
-        matched.set(state, clip);
+        matched.set(slot, clip);
         break;
       }
     }
   }
   return matched;
+}
+
+/**
+ * Fills any slot the asset did not supply with generated locomotion.
+ *
+ * An asset's own clips always win — authored animation beats anything generated
+ * here — so dropping in a real clip library later replaces these a state at a
+ * time, with no code change.
+ */
+function withGeneratedClips(
+  rig: HumanoidRig,
+  supplied: Map<LocomotionClip, THREE.AnimationClip>,
+): Map<LocomotionClip, THREE.AnimationClip> {
+  const generated = createLocomotionClips(rig);
+  const merged = new Map(generated);
+  for (const [slot, clip] of supplied) merged.set(slot, clip);
+  return merged;
 }
 
 /**
@@ -96,51 +113,81 @@ function createPlaceholderCharacter(): CharacterAsset {
 
   return {
     root: rig.root,
-    clips: createPlaceholderClips(),
+    clips: createLocomotionClips(rig),
     source: "placeholder",
-    missingStates: [],
+    assetClips: [],
+    height: PLAYER_CONFIG.standHeight,
     rig,
     dispose: () => rig.dispose(),
   };
 }
 
-async function loadGlbCharacter(url: string): Promise<CharacterAsset> {
-  const gltf = await new GLTFLoader().loadAsync(url);
-  const root = gltf.scene;
+/**
+ * The glTF specification places an asset's front on +Z; NULLPOINT uses −Z
+ * throughout (`CLAUDE.md` §5). A spec-conforming asset therefore needs half a
+ * turn, applied once at the model root.
+ */
+const GLTF_FORWARD_CORRECTION = Math.PI;
 
-  root.traverse((object) => {
+/** Quaternius bones run along +Y toward their child, unlike the placeholder's −Y. */
+const QUATERNIUS_REST_DIRECTION = new THREE.Vector3(0, 1, 0);
+
+async function loadGlbCharacter(url: string): Promise<CharacterAsset> {
+  // The glTF references its buffer and textures by bare filename. Vite
+  // fingerprints emitted assets, so those names no longer exist as paths —
+  // every request is routed through the emitted-asset map instead.
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier(resolveCharacterResource);
+
+  const gltf = await new GLTFLoader(manager).loadAsync(url);
+
+  gltf.scene.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       object.castShadow = true;
       object.receiveShadow = true;
+      // Skinned meshes are culled against their un-posed bounding box, so a
+      // character can vanish when an arm swings outside it.
+      object.frustumCulled = false;
     }
   });
 
-  const scale = normalizeToHeight(root, PLAYER_CONFIG.standHeight);
-  const clips = matchClips(gltf.animations);
-  const missingStates = ALL_STATES.filter((state) => !clips.has(state));
+  const built = buildHumanoidRig(gltf.scene, QUATERNIUS_BONE_MAP, {
+    forwardCorrectionYaw: GLTF_FORWARD_CORRECTION,
+    restDirection: QUATERNIUS_REST_DIRECTION,
+    targetHeight: PLAYER_CONFIG.standHeight,
+  });
+
+  if (built === null) {
+    throw new Error("character skeleton could not be mapped; see the log for the missing joints");
+  }
+
+  // Read the bind pose and bake before anything poses the skeleton: the
+  // retargeter measures the character's rest frame, and a posed skeleton would
+  // silently bake the pose into every clip.
+  const supplied = matchClips(gltf.animations);
+  const clips = withGeneratedClips(built.rig, supplied);
+  const assetClips = [...supplied.keys()];
 
   log.info(
-    `loaded character from ${url}: ${gltf.animations.length} clips, scaled ×${scale.toFixed(3)}`,
+    `loaded character from ${url}: ${gltf.animations.length} clips, ` +
+      `scaled ×${built.appliedScale.toFixed(4)} from ${built.sourceHeight.toFixed(3)} m`,
   );
-  if (missingStates.length > 0) {
+  if (assetClips.length < ALL_CLIPS.length) {
+    const generated = ALL_CLIPS.filter((slot) => !supplied.has(slot));
     log.warn(
-      `character GLB has no clip for: ${missingStates.join(", ")}. ` +
-        "A fallback state will be substituted; see ASSET_CREDITS.md.",
-      gltf.animations.map((clip) => clip.name),
+      `character supplies no clip for: ${generated.join(", ")}; using generated locomotion. ` +
+        "See ASSET_CREDITS.md.",
     );
   }
 
   return {
-    root,
+    root: built.rig.root,
     clips,
     source: "glb",
-    missingStates,
-    rig: null,
-    dispose: () => {
-      root.traverse((object) => {
-        if (object instanceof THREE.Mesh) object.geometry.dispose();
-      });
-    },
+    assetClips,
+    height: built.sourceHeight * built.appliedScale,
+    rig: built.rig,
+    dispose: () => built.rig.dispose(),
   };
 }
 
@@ -152,15 +199,17 @@ async function loadGlbCharacter(url: string): Promise<CharacterAsset> {
  * prototype falls back to the placeholder rather than failing to start.
  */
 export async function loadCharacterAsset(): Promise<CharacterAsset> {
-  const url = import.meta.env["VITE_CHARACTER_GLB"];
-  if (typeof url !== "string" || url.length === 0) {
-    return createPlaceholderCharacter();
-  }
+  // An explicit override wins, otherwise the bundled Quaternius character.
+  const override = import.meta.env["VITE_CHARACTER_GLB"];
+  const url =
+    typeof override === "string" && override.length > 0 ? override : CHARACTER_GLTF_URL;
 
   try {
     return await loadGlbCharacter(url);
   } catch (error) {
-    log.error(`failed to load character GLB from ${url}; falling back to placeholder`, error);
+    // Loudly, not silently: a missing character is a real problem, but it must
+    // not stop the game from starting.
+    log.error(`failed to load the character from ${url}; falling back to placeholder`, error);
     return createPlaceholderCharacter();
   }
 }

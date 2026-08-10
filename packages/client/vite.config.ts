@@ -16,7 +16,16 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    fs: {
+      // The character asset lives in the repository's shared `assets/` tree,
+      // outside the client package. Serving it from there keeps one copy of the
+      // source art instead of duplicating it into `public/`.
+      allow: [".."],
+    },
   },
+  // Neither extension is a Vite asset type by default, so without this the glTF
+  // would be parsed as a module rather than emitted as a file.
+  assetsInclude: ["**/*.gltf", "**/*.bin"],
   build: {
     target: "es2023",
     sourcemap: true,

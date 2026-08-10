@@ -45,6 +45,8 @@ async function bootstrap(): Promise<void> {
         teleport: (x: number, y: number, z: number) => game.teleport(x, y, z),
         hideOverlay: () => game.hideOverlay(),
         resetTargets: () => game.resetTargets(),
+        healPlayer: () => game.healPlayer(),
+        damagePlayer: (amount: number) => game.damagePlayer(amount),
       },
       configurable: true,
     });

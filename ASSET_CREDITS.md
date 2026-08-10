@@ -6,9 +6,9 @@ animations, audio, fonts, icons and HDRIs.
 > **Binding rule (`CLAUDE.md` §8): the entry is added _before_ the asset is
 > committed. No entry, no commit.**
 
-**Current state: no third-party assets are in use.** Every third-party table
-below is empty. The player character, the rifle, the arena and all weapon audio
-are self-made placeholders — see §6.
+**Current state: one third-party asset is in use** — the Quaternius base
+character (§4.1). The rifle, the arena and all weapon audio remain self-made
+placeholders — see §6.
 
 ---
 
@@ -88,15 +88,48 @@ Copy this for each new asset.
 
 ### 4.1 Models
 
-*None.*
+#### Superhero Male (Universal Base Characters)
+
+| Field | Value |
+| ----- | ----- |
+| File(s) | `assets/source/models/Superhero_Male_FullBody.gltf`, `Superhero_Male_FullBody.bin` |
+| Type | Model — rigged humanoid, 65-bone skeleton, 14,318 triangles |
+| Author | Quaternius |
+| Source URL | https://quaternius.itch.io/universal-base-characters |
+| License | Creative Commons Zero v1.0 Universal (CC0) |
+| License URL | https://creativecommons.org/publicdomain/zero/1.0/ |
+| Attribution required | No — CC0. Credited here voluntarily. |
+| Date acquired | 2026-08-10 |
+| Modified | No. The glTF and its buffer are used exactly as supplied; scale, orientation and bone naming are adapted at load time, never in the file. |
+| Used in | The player character |
+| Notes | Ships with **no animation clips**. Contains no clothing beyond shorts. |
 
 ### 4.2 Textures & materials
 
-*None.*
+Supplied with the Quaternius character above, same author, source and CC0
+license. Stored in `assets/source/textures/`.
+
+| File | Used for |
+| ---- | -------- |
+| `T_Superhero_Male_Dark.png` | Body base colour |
+| `T_Superhero_Male_Normal.png` | Body normal map |
+| `T_Superhero_Male_Roughness.png` | Body roughness/metalness |
+| `T_Hair_1_BaseColor.png` | Hair base colour |
+| `T_Hair_1_Normal.png` | Hair normal map |
+| `T_Eye_Brown.png` | Eye base colour |
+| `T_Eye_Normal.png` | Eye normal map |
+
+Also present but **not referenced** by this character, so not bundled:
+`T_Hair_2_*`, `T_Superhero_Female_Normal.png`, `T_Superhero_Male_Ligh.png`, and
+the `Normals Unity - Godot/` directory (normal maps in other engines'
+conventions).
 
 ### 4.3 Animations
 
-*None.*
+*None.* The character in §4.1 ships with no animation clips, and no compatibly
+licensed clip library has been added. All locomotion is **generated at runtime**
+from hand-authored pose data and retargeted onto whichever skeleton is loaded —
+self-made, see §6.
 
 ### 4.4 Audio
 
@@ -130,44 +163,53 @@ completeness, not obligation.
 
 | Asset | File(s) | Tool | Date |
 | ----- | ------- | ---- | ---- |
-| Placeholder humanoid rig | `packages/client/src/character/rig.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
-| Placeholder locomotion clips | `packages/client/src/character/clips.ts` | Written by hand (Three.js keyframe tracks) | 2026-08-10 |
+| Fallback humanoid rig | `packages/client/src/character/rig.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
+| Locomotion pose library | `packages/client/src/character/clips.ts` | Written by hand; retargeted per rig by `retarget.ts` | 2026-08-10 |
+| Training bot placeholder | `packages/client/src/entities/CombatBot.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
 | Grey-box arena | `packages/client/src/world/arenaLayout.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
 | Placeholder assault rifle | `packages/client/src/combat/RifleModel.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
 | Training range and targets | `packages/client/src/world/trainingRange.ts`, `TrainingTarget.ts` | Written by hand (Three.js primitives) | 2026-08-10 |
 | Muzzle flash glow texture | `packages/client/src/combat/MuzzleFlash.ts` | Generated at runtime on a 64 px canvas | 2026-08-10 |
 | Weapon sounds (fire, dry fire, reload, hit) | `packages/client/src/audio/AudioSystem.ts` | Synthesised at runtime with Web Audio | 2026-08-10 |
 
-### 6.1 Why the player character is a placeholder
+### 6.1 The player character, and why a procedural one is still here
 
-The Phase 1 brief calls for a real CC0 humanoid (Quaternius SWAT or similar) and
-says not to spend excessive time acquiring one automatically. Searching found no
-**directly downloadable** rigged humanoid with a verifiable licence:
+**Superseded 2026-08-10.** The player character is now the CC0 Quaternius asset
+in §4.1. The procedural humanoid described below remains in the codebase as the
+**fallback** when the asset fails to load, and it is the second rig that keeps
+the posing code honest about what it assumes.
+
+The original reason for the placeholder is kept because it still governs how
+assets are acquired: the Phase 1 brief called for a real CC0 humanoid, and
+searching found no **directly downloadable** rigged humanoid with a verifiable
+licence.
 
 - Quaternius and Kenney distribute through itch.io/Gumroad landing pages with no
-  stable direct asset URL.
+  stable direct asset URL. The asset in §4.1 reached the project because the
+  developer downloaded it and placed it in `assets/source/`.
 - three.js ships `Soldier.glb` with locomotion clips, but its `examples/models`
   directory carries **no stated licence**. `CLAUDE.md` §8 forbids using an asset
   whose licence is unclear, so it was not used.
 - Bypassing a download gate, CAPTCHA or paywall to obtain one is out of the
   question.
 
-Rather than stall the phase, the prototype ships a clearly-marked procedural
-humanoid: a bone hierarchy with box limbs, amber accent parts and a visible nose
-wedge so facing is readable, driven by hand-authored `AnimationClip`s through a
-normal `AnimationMixer`.
+The fallback itself is a bone hierarchy with box limbs, amber accent parts and a
+visible nose wedge so facing is readable, driven by hand-authored
+`AnimationClip`s through a normal `AnimationMixer`.
 
-**To replace it with a real asset**, no code changes are required beyond a name
-map:
+**To replace the character with a different asset:**
 
-1. Put the GLB somewhere the client serves, e.g. `packages/client/public/models/`.
-2. Set `VITE_CHARACTER_GLB=/models/<file>.glb`.
-3. Add the asset to §4.1 above **before** committing it.
+1. Put the GLB where the client can serve it, e.g.
+   `packages/client/public/models/`.
+2. Set `VITE_CHARACTER_GLB=/models/<file>.glb`, which overrides the bundled
+   asset.
+3. Add a bone map for its skeleton in
+   `packages/client/src/character/humanoidRig.ts` if its naming differs.
+4. Add the asset to §4.1 above **before** committing it.
 
-`loadCharacterAsset()` scales any GLB to `PLAYER_CONFIG.standHeight`, matches
+`loadCharacterAsset()` normalises any rig to `PLAYER_CONFIG.standHeight`, matches
 clip names case-insensitively against the usual Mixamo/Quaternius spellings, and
-warns about (rather than breaks on) any locomotion state the asset lacks. Until
-`VITE_CHARACTER_GLB` is set, **no network request for a character is made**.
+warns about (rather than breaks on) any locomotion state the asset lacks.
 
 ### 6.2 Why the rifle is a placeholder (Phase 2)
 

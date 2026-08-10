@@ -83,10 +83,10 @@ export function createRifleModel(): RifleModel {
 
   const gripLeft = new THREE.Object3D();
   gripLeft.name = "grip-left";
-  // Kept within the support arm's reach. The handguard runs to −0.55, but a
-  // grip out there is 0.62 m from the left shoulder and the arm spans 0.54 m,
-  // so the hand could never close on it.
-  gripLeft.position.set(0, 0.02, -0.22);
+  // Kept within the support arm's reach rather than out on the handguard: the
+  // Quaternius arm spans 0.495 m from shoulder to wrist, and a grip further
+  // forward simply cannot be reached across the body.
+  gripLeft.position.set(0, 0.02, -0.17);
   root.add(gripLeft);
 
   return {

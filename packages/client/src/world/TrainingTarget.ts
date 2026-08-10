@@ -7,12 +7,32 @@ import { applyDamage, clamp, damp, type Damageable, type DamageResult, type HitI
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 
 /**
- * A stationary training target.
+ * A training target.
  *
  * The simplest thing that satisfies the `Damageable` contract: health, a
- * collider, a mesh, and readable feedback. No AI, no movement — the Phase 2
- * brief explicitly excludes both.
+ * collider, a mesh, and readable feedback. No AI.
+ *
+ * A target may optionally travel along a straight line (see {@link TargetMotion}).
+ * A moving target sits on a **kinematic** body rather than a static one, so its
+ * collider travels with its mesh — a plate whose visual moves while its collider
+ * stays put is a target you cannot hit where you can see it.
  */
+
+/**
+ * Straight-line oscillation, `centre ± amplitude` along one axis.
+ *
+ * Phase-offset so several targets on the same period do not move in lockstep,
+ * which is much less useful to shoot at.
+ */
+export interface TargetMotion {
+  readonly axis: "x" | "y" | "z";
+  /** Half the travel, m. */
+  readonly amplitude: number;
+  /** Seconds for one full there-and-back cycle. */
+  readonly period: number;
+  /** Starting phase, 0..1 of a cycle. */
+  readonly phase?: number;
+}
 
 export interface TrainingTargetOptions {
   readonly id: string;
@@ -29,6 +49,8 @@ export interface TrainingTargetOptions {
    * raised block does not sprout a post that reaches down through it to y = 0.
    */
   readonly postHeight: number;
+  /** Absent for a stationary target. */
+  readonly motion?: TargetMotion;
 }
 
 const HEALTHY_COLOUR = new THREE.Color(0x3f9d6d);
@@ -55,6 +77,12 @@ export class TrainingTarget implements Damageable {
   private readonly collider: RAPIER.Collider;
   private readonly colliderHandle: number;
   private readonly geometries: THREE.BufferGeometry[] = [];
+
+  private readonly motion: TargetMotion | null;
+  private readonly body: RAPIER.RigidBody | null;
+  private readonly origin: THREE.Vector3;
+  private readonly nextTranslation = { x: 0, y: 0, z: 0 };
+  private elapsed = 0;
 
   private flash = 0;
   private tilt = 0;
@@ -106,13 +134,31 @@ export class TrainingTarget implements Damageable {
 
     // The collider matches the plate only. The post is decoration, so shots that
     // clip the post do not register as target hits.
-    const collider = physics.addStaticBox(
-      { x, y, z },
-      { x: width / 2, y: height / 2, z: 0.07 },
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, options.facing, 0)),
-    );
-    this.collider = collider;
-    this.colliderHandle = collider.handle;
+    const halfExtents = { x: width / 2, y: height / 2, z: 0.07 };
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, options.facing, 0));
+    this.motion = options.motion ?? null;
+    this.origin = new THREE.Vector3(x, y, z);
+
+    if (this.motion === null) {
+      this.body = null;
+      this.collider = physics.addStaticBox({ x, y, z }, halfExtents, rotation);
+    } else {
+      const created = physics.addKinematicBox({ x, y, z }, halfExtents, rotation);
+      this.body = created.body;
+      this.collider = created.collider;
+      this.elapsed = (this.motion.phase ?? 0) * this.motion.period;
+    }
+    this.colliderHandle = this.collider.handle;
+  }
+
+  /** True for a target that travels. Development hook. */
+  get isMoving(): boolean {
+    return this.motion !== null;
+  }
+
+  /** Current world position of the plate. Development hook. */
+  get worldPosition(): Readonly<{ x: number; y: number; z: number }> {
+    return { x: this.group.position.x, y: this.group.position.y, z: this.group.position.z };
   }
 
   get colliderId(): number {
@@ -161,6 +207,7 @@ export class TrainingTarget implements Damageable {
 
   /** @param dt Real frame delta, seconds. */
   update(dt: number): void {
+    this.advanceMotion(dt);
     this.flash = Math.max(0, this.flash - FLASH_DECAY_RATE * dt);
     this.kick = Math.max(0, this.kick - 6 * dt);
 
@@ -181,6 +228,37 @@ export class TrainingTarget implements Damageable {
     this.healthBar.visible = this.isAlive;
     this.healthBar.scale.x = fraction;
     this.healthBarMaterial.color.setHex(fraction > 0.3 ? 0x8ee0b0 : 0xe08e8e);
+  }
+
+  /**
+   * Moves a travelling target, mesh and collider together.
+   *
+   * A sine rather than a triangle wave so the plate eases at each end instead of
+   * reversing instantly, which reads as a glitch and is impossible to lead.
+   */
+  private advanceMotion(dt: number): void {
+    const motion = this.motion;
+    const body = this.body;
+    if (motion === null || body === null || motion.period <= 0) return;
+
+    this.elapsed = (this.elapsed + dt) % motion.period;
+    const offset = Math.sin((this.elapsed / motion.period) * Math.PI * 2) * motion.amplitude;
+
+    this.group.position.copy(this.origin);
+    if (motion.axis === "x") this.group.position.x += offset;
+    else if (motion.axis === "y") this.group.position.y += offset;
+    else this.group.position.z += offset;
+
+    this.nextTranslation.x = this.group.position.x;
+    this.nextTranslation.y = this.group.position.y;
+    this.nextTranslation.z = this.group.position.z;
+    // `setTranslation`, not `setNextKinematicTranslation`. The latter is applied
+    // by the next `world.step()`, and this runs on the render loop while the
+    // step runs on the fixed one — the mesh moved and the collider stayed at
+    // its spawn, so the plate could only be hit where it no longer was.
+    // A target follows an authored path and never reacts to a collision, so
+    // placing it outright is both correct and exactly synchronous with the mesh.
+    body.setTranslation(this.nextTranslation, true);
   }
 
   dispose(): void {

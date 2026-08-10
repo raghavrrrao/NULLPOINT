@@ -13,6 +13,8 @@ import * as THREE from "three";
 
 import { createAudioSystem, type AudioSystem } from "../audio/AudioSystem.ts";
 import { loadCharacterAsset, type CharacterAsset } from "../character/CharacterAsset.ts";
+import { CombatBot } from "../entities/CombatBot.ts";
+import { PlayerCombatant, PLAYER_COMBAT_DEFAULTS } from "../entities/PlayerCombatant.ts";
 import { DamageableRegistry } from "../combat/DamageableRegistry.ts";
 import { WeaponSystem } from "../combat/WeaponSystem.ts";
 import { FpsMeter } from "../debug/FpsMeter.ts";
@@ -26,6 +28,7 @@ import { ThirdPersonCamera } from "../render/ThirdPersonCamera.ts";
 import { DebugHud } from "../ui/DebugHud.ts";
 import { Arena } from "../world/Arena.ts";
 import { SPAWN_POSITION } from "../world/arenaLayout.ts";
+import { BOT_SPAWNS } from "../world/trainingRange.ts";
 import { GameLoop } from "./GameLoop.ts";
 
 const log = createLogger("game");
@@ -61,6 +64,8 @@ export class Game {
   private readonly fps = new FpsMeter();
 
   private readonly damageables = new DamageableRegistry();
+  private readonly combatant: PlayerCombatant;
+  private readonly bots: readonly CombatBot[];
   private readonly audio: AudioSystem;
   private readonly weapon: WeaponSystem;
   private readonly combatHud: CombatHud;
@@ -112,6 +117,26 @@ export class Game {
     this.environment.scene.add(this.weapon.effectsGroup);
     // The arms are solved onto these, so the grip is correct by construction.
     this.player.setWeaponGrips(this.weapon.grips);
+
+    // The player is damageable through the same contract as everything else, so
+    // the bot's hitscan resolves against it by the identical path.
+    this.combatant = new PlayerCombatant({
+      maxHealth: PLAYER_COMBAT_DEFAULTS.maxHealth,
+      respawnDelay: PLAYER_COMBAT_DEFAULTS.respawnDelay,
+      spawn: vec3(SPAWN_POSITION[0], SPAWN_POSITION[1], SPAWN_POSITION[2]),
+    });
+    this.damageables.register(this.player.characterCollider.handle, this.combatant);
+
+    this.bots = BOT_SPAWNS.map(
+      (spawn) =>
+        new CombatBot(physics, this.damageables, {
+          id: spawn.id,
+          spawn: vec3(spawn.position[0], spawn.position[1], spawn.position[2]),
+          weapon: this.weapon.definition,
+          damage: spawn.damage,
+        }),
+    );
+    for (const bot of this.bots) this.environment.scene.add(bot.group);
 
     this.input = new InputManager(this.renderer.domElement);
     this.input.onPointerLockChanged(({ locked }) => {
@@ -172,7 +197,24 @@ export class Game {
     this.intent.speedMultiplier = this.intent.aim
       ? this.weapon.definition.aimMoveSpeedMultiplier
       : 1;
+
+    // Dead players do not drive. The intent is blanked rather than the
+    // simulation skipped, so gravity, collision and settling still run.
+    const dead = this.combatant.isDead;
+    if (dead) {
+      this.intent.forward = 0;
+      this.intent.right = 0;
+      this.intent.sprint = false;
+      this.intent.jump = false;
+      this.intent.aim = false;
+    }
+
     this.player.fixedUpdate(this.intent, dt);
+
+    if (this.combatant.fixedUpdate(dt)) {
+      const spawn = this.combatant.spawnPoint;
+      this.teleport(spawn.x, spawn.y, spawn.z);
+    }
 
     // Refreshes the query pipeline the camera, headroom and hitscan read from.
     // Stepped before the weapon so shots trace against this tick's positions.
@@ -180,10 +222,16 @@ export class Game {
 
     this.renderer.camera.getWorldPosition(this.cameraWorldPosition);
     this.renderer.camera.getWorldDirection(this.cameraWorldDirection);
+    for (const bot of this.bots) {
+      bot.fixedUpdate(this.player.position, !dead, this.player.characterCollider, dt);
+    }
+
     this.weapon.fixedUpdate(
-      this.input.wasPressed(InputAction.Fire),
-      this.input.isHeld(InputAction.Fire),
-      this.input.wasPressed(InputAction.Reload),
+      // Firing is disabled while dead. Reloading is too, so the player does not
+      // respawn mid-reload.
+      !dead && this.input.wasPressed(InputAction.Fire),
+      !dead && this.input.isHeld(InputAction.Fire),
+      !dead && this.input.wasPressed(InputAction.Reload),
       this.intent.aim,
       this.cameraWorldPosition,
       this.cameraWorldDirection,
@@ -222,6 +270,7 @@ export class Game {
     );
     this.weapon.render(dt);
     this.arena.update(dt);
+    for (const bot of this.bots) bot.render(dt);
 
     const p = this.player.object.position;
     this.camera.update(
@@ -262,6 +311,17 @@ export class Game {
         aimTarget: this.weapon.currentAimTargetId,
         lastDamage: this.weapon.lastShotOutcome.damage,
         lastTarget: this.weapon.lastShotOutcome.targetId,
+        health: this.combatant.health,
+        maxHealth: this.combatant.maxHealth,
+        respawnIn: this.combatant.timeToRespawn,
+        bots: this.bots.map((bot) => ({
+          id: bot.damageableId,
+          state: bot.botState,
+          health: bot.health,
+          distance: bot.distance,
+          lineOfSight: bot.hasLineOfSight,
+          cooldown: bot.fireCooldown,
+        })),
       },
       performance.now(),
     );
@@ -289,6 +349,7 @@ export class Game {
       drawCalls: this.renderer.drawCalls,
       characterSource: this.characterSource,
       standHeight: PLAYER_CONFIG.standHeight,
+      characterHeight: this.player.characterHeight,
 
       aiming: this.weapon.runtime.aiming,
       aimAmount: this.camera.aimAmount,
@@ -297,6 +358,10 @@ export class Game {
       poseAimBlend: this.player.aimBlend,
       handGripError: this.player.handGripError(),
       poseAngles: this.player.poseAngles(),
+      footHeight: this.player.footHeight(),
+      footPositions: this.player.footPositions(),
+      animationClip: this.player.animationClip,
+      groundingOffset: this.player.groundingOffset,
       weaponForward: this.weapon.weaponForward(this.cameraWorldDirection.clone()).toArray(),
       fov: this.renderer.camera.fov,
       weaponId: this.weapon.definition.id,
@@ -321,6 +386,28 @@ export class Game {
         health: target.health,
         maxHealth: target.maxHealth,
         alive: target.isAlive,
+        moving: target.isMoving,
+        position: target.worldPosition,
+      })),
+
+      playerHealth: this.combatant.health,
+      playerMaxHealth: this.combatant.maxHealth,
+      playerAlive: this.combatant.isAlive,
+      playerDeaths: this.combatant.deathCount,
+      playerRespawnIn: this.combatant.timeToRespawn,
+      bots: this.bots.map((bot) => ({
+        id: bot.damageableId,
+        state: bot.botState,
+        health: bot.health,
+        maxHealth: bot.maxHealth,
+        alive: bot.isAlive,
+        distance: bot.distance,
+        lineOfSight: bot.hasLineOfSight,
+        cooldown: bot.fireCooldown,
+        respawnIn: bot.respawnCountdown,
+        shotsFired: bot.shotCount,
+        lastShotHitPlayer: bot.lastShotFired?.hitPlayer ?? false,
+        position: { ...bot.position },
       })),
     };
   }
@@ -328,6 +415,21 @@ export class Game {
   /** Development hook: restores every training target to full health. */
   resetTargets(): void {
     this.arena.resetTargets();
+  }
+
+  /** Development hook: restores the player to full health immediately. */
+  healPlayer(): void {
+    this.combatant.reset();
+  }
+
+  /** Development hook: applies damage directly, without needing a bot to land it. */
+  damagePlayer(amount: number): void {
+    this.combatant.takeDamage(amount, {
+      point: { ...this.player.position },
+      normal: { x: 0, y: 1, z: 0 },
+      distance: 0,
+      sourceId: "DEBUG",
+    });
   }
 
   /** Development hook: pointer lock cannot be driven from an automated test. */

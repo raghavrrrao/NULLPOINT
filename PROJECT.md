@@ -159,6 +159,7 @@ Each must be decided by the developer before the phase that depends on it.
 | Q20 | Which browsers must be supported, and to what standard? §5 currently *assumes* Chromium-first, Firefox/Safari best-effort. | Phase 10 |
 | Q21 | What is the performance target, and on what reference hardware? §5 currently *assumes* 60 FPS at 1080p on a mid-range discrete GPU. | Phase 9 |
 | Q22 | The repository's default branch is `master` (tracking `origin/master`), but `CLAUDE.md` §10 refers to `main`. Which is correct? | Phase 1 |
+| Q23 | "Phase 3" now names two different things: the roadmap's Server Core & Transport, and the character integration delivered on 2026-08-10. Renumber the roadmap, or keep character work outside the numbering? | Nothing — but every phase reference stays ambiguous until answered |
 
 ### Answered
 

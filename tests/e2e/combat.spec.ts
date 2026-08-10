@@ -8,6 +8,7 @@ import {
   expectEventually,
   findTarget,
   frames,
+  recordFrames,
   resetTargets,
   snapshot,
   startGame,
@@ -299,15 +300,27 @@ test.describe("hitscan and damage", () => {
     await page.mouse.down({ button: "right" });
     await aimAt(page, TARGETS.CLOSE.x, TARGETS.CLOSE.y, TARGETS.CLOSE.z);
 
-    // A single round inside the falloff distance is exactly 25 damage.
+    // Sampled per frame inside the page rather than polled from here. The rifle
+    // is automatic, so the trigger must be held, and a poll costing a round trip
+    // straddles several shots — the fourth destroys the plate, after which
+    // `lastShot` reports a miss and the round under test is gone.
+    const recording = recordFrames(page, 40);
     await page.mouse.down({ button: "left" });
-    await expectEventually(page, "one hit landed", (s) => s.lastShot.onTarget);
+    await frames(page, 6);
     await page.mouse.up({ button: "left" });
+    const samples = await recording;
     await page.mouse.up({ button: "right" });
 
-    const state = await snapshot(page);
-    expect(state.lastShot.damage).toBe(25);
-    expect(state.lastShot.targetId).toBe("CLOSE");
+    const baseline = samples[0]?.shotsFired ?? 0;
+    const firstShot = samples.find((s) => s.shotsFired > baseline);
+    expect(firstShot, "the trigger should have fired a round").toBeDefined();
+    if (firstShot === undefined) return;
+
+    // A single round inside the falloff distance is exactly 25 damage.
+    expect(firstShot.shotsFired - baseline, "the plate must survive to be measured").toBeLessThan(4);
+    expect(firstShot.lastShot.onTarget).toBe(true);
+    expect(firstShot.lastShot.damage).toBe(25);
+    expect(firstShot.lastShot.targetId).toBe("CLOSE");
   });
 
   test("destroys a target after four hits and stops blocking shots", async ({ page }) => {

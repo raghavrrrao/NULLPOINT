@@ -19,6 +19,8 @@ export interface GameSnapshot {
   drawCalls: number;
   characterSource: string;
   standHeight: number;
+  /** Rendered character height, metres. */
+  characterHeight: number;
 
   // --- Combat (Phase 2) ---
   aiming: boolean;
@@ -50,9 +52,46 @@ export interface GameSnapshot {
   weaponForward: [number, number, number];
   /** Chest, head and spine X rotations, radians. Positive leans backward. */
   poseAngles: { torso: number; head: number; spine: number };
+  /** Height of each foot above the character ground plane, metres. */
+  footHeight: { right: number; left: number };
   audioReady: boolean;
   audioPlays: number;
-  targets: Array<{ id: string; health: number; maxHealth: number; alive: boolean }>;
+  targets: Array<{
+    id: string;
+    health: number;
+    maxHealth: number;
+    alive: boolean;
+    moving: boolean;
+    position: { x: number; y: number; z: number };
+  }>;
+
+  // --- Locomotion and combat sandbox (Phase 3B) ---
+  /** Locomotion clip currently playing. */
+  animationClip: string;
+  /** Both feet in character space, metres. */
+  footPositions: { right: [number, number, number]; left: [number, number, number] };
+  /** Foot-grounding correction applied to the pelvis, metres. */
+  groundingOffset: number;
+
+  playerHealth: number;
+  playerMaxHealth: number;
+  playerAlive: boolean;
+  playerDeaths: number;
+  playerRespawnIn: number;
+  bots: Array<{
+    id: string;
+    state: string;
+    health: number;
+    maxHealth: number;
+    alive: boolean;
+    distance: number;
+    lineOfSight: boolean;
+    cooldown: number;
+    respawnIn: number;
+    shotsFired: number;
+    lastShotHitPlayer: boolean;
+    position: { x: number; y: number; z: number };
+  }>;
 }
 
 /** Mouse sensitivity from `CAMERA_CONFIG`, needed to convert angles to pixels. */
@@ -289,7 +328,29 @@ export async function engagePointerLock(page: Page): Promise<boolean> {
   return page.evaluate(() => document.pointerLockElement !== null);
 }
 
-export function findTarget(state: GameSnapshot, id: string): { id: string; health: number; maxHealth: number; alive: boolean } {
+/** Restores the player to full health. Development hook. */
+export async function healPlayer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __NULLPOINT__: { healPlayer(): void } }).__NULLPOINT__.healPlayer();
+  });
+}
+
+/** Applies damage to the player directly, without needing a bot to land it. */
+export async function damagePlayer(page: Page, amount: number): Promise<void> {
+  await page.evaluate((value) => {
+    (window as unknown as { __NULLPOINT__: { damagePlayer(a: number): void } }).__NULLPOINT__.damagePlayer(
+      value as number,
+    );
+  }, amount);
+}
+
+export function findBot(state: GameSnapshot, id: string): GameSnapshot["bots"][number] {
+  const bot = state.bots.find((b) => b.id === id);
+  if (bot === undefined) throw new Error(`no bot named ${id}`);
+  return bot;
+}
+
+export function findTarget(state: GameSnapshot, id: string): GameSnapshot["targets"][number] {
   const target = state.targets.find((t) => t.id === id);
   if (target === undefined) throw new Error(`no training target named ${id}`);
   return target;

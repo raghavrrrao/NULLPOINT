@@ -24,6 +24,22 @@ export interface DebugHudSnapshot {
   readonly aimTarget: string;
   readonly lastDamage: number;
   readonly lastTarget: string;
+
+  // --- Combat sandbox (Phase 3B) ---
+  readonly health: number;
+  readonly maxHealth: number;
+  /** Seconds until respawn; zero while alive. */
+  readonly respawnIn: number;
+  readonly bots: readonly BotHudRow[];
+}
+
+export interface BotHudRow {
+  readonly id: string;
+  readonly state: string;
+  readonly health: number;
+  readonly distance: number;
+  readonly lineOfSight: boolean;
+  readonly cooldown: number;
 }
 
 const UPDATE_INTERVAL_MS = 100;
@@ -97,6 +113,16 @@ export class DebugHud {
           ? `${fixed(snapshot.lastDamage, 0)} -> ${snapshot.lastTarget}`
           : "-"
       }`,
+      "",
+      `HEALTH    ${fixed(snapshot.health, 0)} / ${snapshot.maxHealth}${
+        snapshot.respawnIn > 0 ? `   DEAD  RESPAWN ${fixed(snapshot.respawnIn, 1)} s` : ""
+      }`,
+      ...snapshot.bots.map(
+        (bot) =>
+          `${bot.id.padEnd(10)}${bot.state.padEnd(7)} HP ${fixed(bot.health, 0).padStart(3)}` +
+          `  ${fixed(bot.distance, 1).padStart(5)} m  ${bot.lineOfSight ? "LOS" : "---"}` +
+          `  CD ${fixed(bot.cooldown, 1)}`,
+      ),
     ].join("\n");
   }
 

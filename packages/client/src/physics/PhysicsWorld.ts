@@ -74,6 +74,30 @@ export class PhysicsWorld {
     return this.world.createCollider(desc, body);
   }
 
+  /**
+   * Adds a box on a kinematic body, for geometry that moves under script.
+   *
+   * Kinematic rather than static because a static collider cannot be moved, and
+   * kinematic rather than dynamic because a moving target follows an authored
+   * path — it is not simulated, and nothing should be able to push it.
+   */
+  addKinematicBox(
+    position: RAPIER.Vector,
+    halfExtents: RAPIER.Vector,
+    rotation: RAPIER.Rotation,
+  ): { body: RAPIER.RigidBody; collider: RAPIER.Collider } {
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased()
+        .setTranslation(position.x, position.y, position.z)
+        .setRotation(rotation),
+    );
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(halfExtents.x, halfExtents.y, halfExtents.z),
+      body,
+    );
+    return { body, collider };
+  }
+
   createCharacterController(): RAPIER.KinematicCharacterController {
     const c = this.world.createCharacterController(PLAYER_CONFIG.colliderOffset);
     c.setUp({ x: 0, y: 1, z: 0 });

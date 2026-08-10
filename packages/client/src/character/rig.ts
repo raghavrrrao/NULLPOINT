@@ -104,6 +104,9 @@ export interface ArmMetrics {
   readonly lowerLength: number;
 }
 
+/** Direction a limb bone points at rest, in its own local space. */
+export type RestDirection = THREE.Vector3;
+
 export interface HumanoidRig {
   /** Character origin, at the feet. Position and yaw are applied to this. */
   readonly root: THREE.Group;
@@ -121,6 +124,13 @@ export interface HumanoidRig {
   /** Resolves a semantic attachment point to an object in this rig. */
   attachment(point: AttachmentPoint): THREE.Object3D;
   readonly armMetrics: ArmMetrics;
+  /**
+   * Direction a limb bone points at rest, in its own local space.
+   *
+   * −Y for this procedural rig, +Y for the Quaternius skeleton. The IK solver
+   * takes it per chain rather than assuming one convention.
+   */
+  readonly restDirection: RestDirection;
   dispose(): void;
 }
 
@@ -172,9 +182,16 @@ export function createHumanoidRig(): HumanoidRig {
     bones[name].add(mesh);
   }
 
+  // The socket hangs off a frame node whose yaw cancels any difference between
+  // the model's forward axis and NULLPOINT's. Stance offsets are then written in
+  // character space and work unchanged for every rig.
+  const socketFrame = new THREE.Object3D();
+  socketFrame.name = "weapon-socket-frame";
+  bones.Chest.add(socketFrame);
+
   const weaponSocket = new THREE.Object3D();
   weaponSocket.name = "weapon-socket";
-  bones.Chest.add(weaponSocket);
+  socketFrame.add(weaponSocket);
 
   // Facing marker on the head, pointing along −Z.
   const noseGeometry = new THREE.BoxGeometry(0.07, 0.07, 0.09);
@@ -202,6 +219,8 @@ export function createHumanoidRig(): HumanoidRig {
       upperLength: Math.abs(JOINTS.ForearmR.offset[1]),
       lowerLength: Math.abs(JOINTS.HandR.offset[1]),
     },
+    // This rig's limbs hang downward from their joints.
+    restDirection: new THREE.Vector3(0, -1, 0),
     dispose(): void {
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();

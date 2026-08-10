@@ -67,7 +67,7 @@ interface Stance {
  * outboard so it never covers the centre of the screen.
  */
 const HIP: Stance = {
-  offset: [0.15, 0.02, -0.14],
+  offset: [0.08, 0.03, -0.17],
   pitchBias: 0.2,
   yawBias: -0.09,
   pitchFollow: 0.55,
@@ -78,7 +78,7 @@ const HIP: Stance = {
 const AIM: Stance = {
   // Close to the centreline on purpose: held out on the right shoulder the
   // support grip drifts beyond the left arm's reach and the hand comes off it.
-  offset: [0.13, 0.1, -0.18],
+  offset: [0.04, 0.12, -0.20],
   pitchBias: 0,
   yawBias: 0,
   pitchFollow: 1,
@@ -87,7 +87,7 @@ const AIM: Stance = {
 
 /** Sprinting: weapon dropped across the body, out of the way. */
 const SPRINT: Stance = {
-  offset: [0.16, -0.08, -0.1],
+  offset: [0.05, -0.05, -0.15],
   pitchBias: 0.45,
   yawBias: -0.3,
   pitchFollow: 0.15,
@@ -113,7 +113,15 @@ const MAX_TORSO_LEAN_FORWARD = (45 * Math.PI) / 180;
 const AIM_BLEND_RATE = 12;
 const SPRINT_BLEND_RATE = 9;
 
-/** Elbows are pulled toward points below and outboard of each shoulder. */
+/**
+ * Where each elbow is pulled, as an offset from its own shoulder in **character
+ * space** (+X right, +Y up, −Z forward): down, outboard and slightly behind, so
+ * the elbows tuck rather than splay.
+ *
+ * Character space rather than a bone's local space on purpose — a bone's axes
+ * depend on how the asset was authored, so a pole written in chest space lands
+ * on the wrong side the moment a model with a different forward axis is loaded.
+ */
 const RIGHT_ELBOW_POLE = new THREE.Vector3(0.5, -0.8, 0.3);
 const LEFT_ELBOW_POLE = new THREE.Vector3(-0.5, -0.8, 0.3);
 
@@ -137,9 +145,12 @@ export class WeaponPose {
   private readonly gripWorld = new THREE.Vector3();
   private readonly poleWorld = new THREE.Vector3();
   private readonly handQuaternion = new THREE.Quaternion();
+  private readonly rootQuaternion = new THREE.Quaternion();
+  private readonly scratchVector = new THREE.Vector3();
 
   private readonly rightArm: ArmChain;
   private readonly leftArm: ArmChain;
+
 
   constructor(rig: HumanoidRig) {
     this.rig = rig;
@@ -149,6 +160,7 @@ export class WeaponPose {
       hand: rig.bones[BoneName.HandR],
       upperLength: rig.armMetrics.upperLength,
       lowerLength: rig.armMetrics.lowerLength,
+      restDirection: rig.restDirection,
     };
     this.leftArm = {
       upper: rig.bones[BoneName.ArmL],
@@ -156,7 +168,9 @@ export class WeaponPose {
       hand: rig.bones[BoneName.HandL],
       upperLength: rig.armMetrics.upperLength,
       lowerLength: rig.armMetrics.lowerLength,
+      restDirection: rig.restDirection,
     };
+
   }
 
   /** Supplies the weapon's grip anchors. Called when a weapon is equipped. */
@@ -169,6 +183,34 @@ export class WeaponPose {
     return this.aimBlendValue;
   }
 
+  /**
+   * Height of each foot above the character's own ground plane, metres.
+   *
+   * The exit criterion is that feet meet the floor, so it is measured rather
+   * than eyeballed. Development hook.
+   */
+  footHeight(): { right: number; left: number } {
+    const feet = this.footPositions();
+    return { right: feet.right[1], left: feet.left[1] };
+  }
+
+  /**
+   * Both feet in character space, metres.
+   *
+   * The y components answer "are the feet on the floor"; the z components answer
+   * "are the legs actually striding", which is the only objective way to tell a
+   * walk cycle from a bind pose sliding along the ground. Development hook.
+   */
+  footPositions(): { right: [number, number, number]; left: [number, number, number] } {
+    this.rig.root.updateWorldMatrix(true, true);
+    this.rig.bones[BoneName.FootR].getWorldPosition(this.scratchVector);
+    this.rig.root.worldToLocal(this.scratchVector);
+    const right: [number, number, number] = [this.scratchVector.x, this.scratchVector.y, this.scratchVector.z];
+    this.rig.bones[BoneName.FootL].getWorldPosition(this.scratchVector);
+    this.rig.root.worldToLocal(this.scratchVector);
+    return { right, left: [this.scratchVector.x, this.scratchVector.y, this.scratchVector.z] };
+  }
+
   /** Chest and head X rotations, radians. Development hook. */
   get torsoPitch(): number {
     return this.rig.bones[BoneName.Chest].rotation.x;
@@ -178,9 +220,26 @@ export class WeaponPose {
     return this.rig.bones[BoneName.Head].rotation.x;
   }
 
-  /** Spine X rotation written by the locomotion clips, radians. Development hook. */
+  /**
+   * Lean of the lower spine in **character space**, radians. Negative is a
+   * forward fold. Development hook.
+   *
+   * Measured as the direction from the spine joint to the chest joint rather
+   * than read off the bone's local `rotation.x`. Locomotion clips are retargeted
+   * onto each skeleton's bind pose, so a bone's local rotation is its bind
+   * orientation composed with the authored one and means nothing on its own —
+   * on the Quaternius rig a forward fold reads as a *positive* local x. The
+   * vector between two joints is the same measurement on any rig.
+   */
   get spinePitch(): number {
-    return this.rig.bones[BoneName.Spine].rotation.x;
+    this.rig.root.updateWorldMatrix(true, true);
+    this.rig.bones[BoneName.Spine].getWorldPosition(this.scratchVector);
+    this.rig.root.worldToLocal(this.scratchVector);
+    const spineY = this.scratchVector.y;
+    const spineZ = this.scratchVector.z;
+    this.rig.bones[BoneName.Chest].getWorldPosition(this.scratchVector);
+    this.rig.root.worldToLocal(this.scratchVector);
+    return Math.atan2(this.scratchVector.z - spineZ, this.scratchVector.y - spineY);
   }
 
   /**
@@ -311,14 +370,23 @@ export class WeaponPose {
     this.rig.weaponSocket.updateWorldMatrix(true, true);
     grips.right.getWorldQuaternion(this.handQuaternion);
 
+    // Poles are built from the character root's orientation, so they land on the
+    // correct side for any rig regardless of the asset's authored axes.
+    this.rig.root.getWorldQuaternion(this.rootQuaternion);
+
     grips.right.getWorldPosition(this.gripWorld);
-    this.poleWorld.copy(RIGHT_ELBOW_POLE);
-    this.rig.bones[BoneName.Chest].localToWorld(this.poleWorld);
+    this.placePole(this.rightArm.upper, RIGHT_ELBOW_POLE);
     solveArmIK(this.rightArm, this.gripWorld, this.poleWorld, this.handQuaternion);
 
     grips.left.getWorldPosition(this.gripWorld);
-    this.poleWorld.copy(LEFT_ELBOW_POLE);
-    this.rig.bones[BoneName.Chest].localToWorld(this.poleWorld);
+    this.placePole(this.leftArm.upper, LEFT_ELBOW_POLE);
     solveArmIK(this.leftArm, this.gripWorld, this.poleWorld, this.handQuaternion);
+  }
+
+  /** Writes `poleWorld` as a character-space offset from a shoulder. */
+  private placePole(shoulder: THREE.Object3D, offset: THREE.Vector3): void {
+    shoulder.getWorldPosition(this.poleWorld);
+    this.scratchVector.copy(offset).applyQuaternion(this.rootQuaternion);
+    this.poleWorld.add(this.scratchVector);
   }
 }
