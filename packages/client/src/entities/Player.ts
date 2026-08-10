@@ -75,6 +75,16 @@ export class Player {
     this.animation = new AnimationController(asset);
   }
 
+  /**
+   * The player's own capsule.
+   *
+   * Exposed so the camera can exclude it from its collision sweep — the sweep
+   * starts inside the character, so without this it collides with the player.
+   */
+  get characterCollider(): RAPIER.Collider {
+    return this.collider;
+  }
+
   get position(): Readonly<Vec3> {
     return this.state.position;
   }

@@ -72,6 +72,9 @@ export class Game {
     this.environment.scene.add(this.player.object);
 
     this.camera = new ThirdPersonCamera(this.renderer.camera, physics);
+    // Without this the camera collides with the character it is following: the
+    // boom sweep starts at the pivot, which sits inside the player's capsule.
+    this.camera.ignoreCollider(this.player.characterCollider);
     this.camera.snapTo(
       SPAWN_POSITION[0],
       SPAWN_POSITION[1],
@@ -184,6 +187,8 @@ export class Game {
       yaw: this.player.state.yaw,
       cameraYaw: this.camera.yaw,
       cameraPitch: this.camera.pitch,
+      cameraBoom: this.camera.boomDistance,
+      cameraLift: this.camera.lift,
       cameraPosition: this.renderer.camera.position.toArray(),
       fps: this.fps.fps,
       drawCalls: this.renderer.drawCalls,

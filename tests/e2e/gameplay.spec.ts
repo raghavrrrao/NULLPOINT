@@ -382,6 +382,73 @@ test.describe("camera", () => {
     expect(distance).toBeLessThan(6.0);
   });
 
+  test("does not pull in when the player jumps on open ground", async ({ page }) => {
+    await startGame(page);
+    await frames(page, 30);
+
+    const standing = await snapshot(page);
+    expect(standing.cameraBoom).toBeGreaterThan(4.9);
+
+    // Regression: the camera sweep used to include the player's own capsule.
+    // Rising made the lagging pivot sit at torso height, where the capsule is at
+    // full radius, so the sweep reported an immediate hit and the boom collapsed
+    // to its floor for the whole ascent — with no obstacle anywhere near.
+    const recording = recordFrames(page, 45);
+    await page.keyboard.press("Space");
+    const samples = await recording;
+
+    expect(samples.some((s) => !s.grounded), "expected the character to leave the ground").toBe(true);
+
+    const minBoom = Math.min(...samples.map((s) => s.cameraBoom));
+    expect(minBoom).toBeGreaterThan(4.5);
+    expect(Math.max(...samples.map((s) => s.cameraLift))).toBeLessThan(0.01);
+  });
+
+  test("keeps its distance while sprinting across open ground", async ({ page }) => {
+    await startGame(page);
+
+    await page.keyboard.down("w");
+    await page.keyboard.down("Shift");
+    await expectEventually(page, "sprinting", (s) => s.movementState === "SPRINT");
+    const samples = await recordFrames(page, 25);
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("w");
+
+    expect(Math.min(...samples.map((s) => s.cameraBoom))).toBeGreaterThan(4.5);
+  });
+
+  test("never places the camera beyond an obstruction, even when cornered", async ({ page }) => {
+    await startGame(page);
+
+    // Walk backwards into the south wall until the capsule is flush against it.
+    await teleport(page, 0, 0, 26);
+    await frames(page, 10);
+    await page.keyboard.down("s");
+    await frames(page, 60);
+    await page.keyboard.up("s");
+    await frames(page, 20);
+
+    const cornered = await snapshot(page);
+    expect(cornered.position.z).toBeGreaterThan(28.5);
+
+    // Regression: minDistance used to be applied as a lower clamp on the sweep
+    // result, so a boom shorter than the floor was extended back out — through
+    // the wall the sweep had just found. The wall's inner face is at z = 29.5.
+    expect(cornered.cameraPosition[2]).toBeLessThan(29.5);
+
+    // Cornered, the boom lifts over the character instead of jamming into the
+    // back of their head at eye level.
+    expect(cornered.cameraLift).toBeGreaterThan(0.3);
+    expect(cornered.cameraPosition[1]).toBeGreaterThan(cornered.position.y + 1.62);
+
+    // Looking up while cornered points the unlifted boom into the floor behind
+    // the player; the lift must still clear the wall.
+    await applyMouseDelta(page, 0, -400);
+    await frames(page, 25);
+    const lookingUp = await snapshot(page);
+    expect(lookingUp.cameraPosition[2]).toBeLessThan(29.5);
+  });
+
   test("pulls in rather than clipping through a wall", async ({ page }) => {
     await startGame(page);
 

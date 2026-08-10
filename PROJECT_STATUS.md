@@ -123,7 +123,9 @@ Phase 1 brief.
   `packages/shared/src/sim/movement.ts`, free of Three.js, Rapier and the DOM.
 - **Camera:** over-the-shoulder boom, mouse orbit under pointer lock, clamped
   pitch, exponential follow smoothing, sphere-cast collision that pulls in
-  instantly and eases back out.
+  instantly and eases back out. The player's own capsule is excluded from the
+  sweep, the collision result is never overridden upward, and a compressed boom
+  lifts over the character rather than jamming into the back of their head.
 - **Character:** procedural humanoid rig with authored `AnimationClip`s played
   through `AnimationMixer` with cross-fades and speed-scaled playback. Covers
   IDLE, WALK, RUN, SPRINT, JUMP, FALL and CROUCH.
@@ -140,7 +142,7 @@ Phase 1 brief.
 - [x] `npm run typecheck` passes with zero errors.
 - [x] `npm run build` produces a client bundle.
 - [x] `npm test` passes — 45 unit tests.
-- [x] `npm run test:e2e` passes — 28 Playwright tests in real Chromium.
+- [x] `npm run test:e2e` passes — 31 Playwright tests in real Chromium.
 - [x] `shared` is imported by `client`; `client` imports nothing from a server.
 - [x] No `any`, no non-null assertions, no `console.log` in committed code.
 - [x] Lockfile committed; every dependency version exact-pinned.
@@ -177,8 +179,39 @@ Recorded rather than silently absorbed:
    `net/` and `audio/` remain empty, awaiting Phases 3 and 9.
 4. **The `server` package is not scaffolded.** See above.
 
+### Camera collision — fixed after manual testing (2026-08-10)
+
+Two defects were reported from manual play and fixed:
+
+1. **Jumping pulled the camera in on open ground.** The collision sweep starts
+   at the pivot, which is inside the character, and the player's own collider was
+   not excluded. While rising, the damped pivot lagged to torso height where the
+   capsule is at full radius, the probe sphere started penetrating, and Rapier's
+   `stopAtPenetration` reported a time-of-impact of zero. Measured: the boom
+   collapsed from 5.03 m to 1.07 m for the whole ascent.
+2. **`minDistance` was applied as a lower clamp on the collision result**, so a
+   boom shorter than the floor was extended back out *through* whatever the sweep
+   had just hit. Measured: cornered against a wall whose face is at z = 29.5, the
+   camera sat at z = 29.64.
+
+A minimum distance can never be enforced by overriding a collision result. It is
+now earned by tilting the boom up over the character when space behind runs out,
+and `minDistance` is a small floor that is itself capped by the contact distance.
+
 ### Known limitations
 
+- **A player pressed flat against a tall wall still gets a close, steeply
+  overhead camera** (boom ≈ 0.4–0.5 m at the capsule's contact limit). With only
+  ~0.36 m between the pivot and the wall, and a 0.22 m probe sphere, no camera
+  position exists that is both further back and outside the wall. The camera
+  stays out of geometry, which is the property that matters; framing in that
+  pocket is inherently poor. Fading the character out at very short boom lengths
+  would be the next step, and belongs with the art pass in Phase 8/9.
+- Cornering produces a noticeable rise to ~72°. This is deliberate and is the
+  only way to keep a usable distance without clipping, but it is a large view
+  change; the rate is tunable via `CAMERA_CONFIG.liftDamp`.
+- The over-the-shoulder lateral offset is not reduced as the boom shortens, so a
+  fully compressed camera is still offset ~0.55 m to the side.
 - The character is a **procedural placeholder**, not a licensed rigged asset.
   See `ASSET_CREDITS.md` §6 and **Q10**/**Q11**.
 - The client bundle is ~3.5 MB (~1.26 MB gzipped), dominated by Rapier's inlined

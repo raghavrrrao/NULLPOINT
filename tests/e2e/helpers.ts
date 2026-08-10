@@ -10,6 +10,10 @@ export interface GameSnapshot {
   yaw: number;
   cameraYaw: number;
   cameraPitch: number;
+  /** Boom length in metres after collision resolution. */
+  cameraBoom: number;
+  /** Extra pitch added by collision, radians. */
+  cameraLift: number;
   cameraPosition: [number, number, number];
   fps: number;
   drawCalls: number;
