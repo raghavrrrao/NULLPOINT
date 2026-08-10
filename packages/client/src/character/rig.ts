@@ -42,19 +42,22 @@ const JOINTS: Readonly<Record<BoneName, { parent: BoneName | null; offset: [numb
   Chest: { parent: "Spine", offset: [0, 0.2, 0] },
   Head: { parent: "Chest", offset: [0, 0.28, 0] },
 
-  ArmL: { parent: "Chest", offset: [0.2, 0.14, 0] },
+  // Facing is −Z, so with Y up the character's right hand is at **+X**. The
+  // original table had these mirrored, which put the weapon on the side away
+  // from the camera's shoulder offset and hid it behind the torso.
+  ArmL: { parent: "Chest", offset: [-0.2, 0.14, 0] },
   ForearmL: { parent: "ArmL", offset: [0, -0.28, 0] },
-  ArmR: { parent: "Chest", offset: [-0.2, 0.14, 0] },
+  ArmR: { parent: "Chest", offset: [0.2, 0.14, 0] },
   ForearmR: { parent: "ArmR", offset: [0, -0.28, 0] },
   // Hands exist as explicit joints so a weapon has something to attach to that
   // is not the forearm mesh. A real rigged GLB will provide equivalents.
   HandL: { parent: "ForearmL", offset: [0, -0.26, 0] },
   HandR: { parent: "ForearmR", offset: [0, -0.26, 0] },
 
-  ThighL: { parent: "Hips", offset: [0.11, -0.06, 0] },
+  ThighL: { parent: "Hips", offset: [-0.11, -0.06, 0] },
   ShinL: { parent: "ThighL", offset: [0, -0.44, 0] },
   FootL: { parent: "ShinL", offset: [0, -0.33, 0] },
-  ThighR: { parent: "Hips", offset: [-0.11, -0.06, 0] },
+  ThighR: { parent: "Hips", offset: [0.11, -0.06, 0] },
   ShinR: { parent: "ThighR", offset: [0, -0.44, 0] },
   FootR: { parent: "ShinR", offset: [0, -0.33, 0] },
 };
@@ -80,21 +83,44 @@ const LIMB_MESHES: Readonly<
   FootR: { size: [0.13, 0.09, 0.26], centre: [0, -0.045, -0.05] },
 };
 
+/**
+ * Semantic attachment points.
+ *
+ * Named by role, not by placeholder geometry, so a real rigged GLB can supply
+ * the same set by mapping its own bones and nothing downstream changes.
+ */
+export const AttachmentPoint = {
+  RightHand: "RIGHT_HAND",
+  LeftHand: "LEFT_HAND",
+  WeaponSocket: "WEAPON_SOCKET",
+  Head: "HEAD",
+} as const;
+
+export type AttachmentPoint = (typeof AttachmentPoint)[keyof typeof AttachmentPoint];
+
+/** Segment lengths the IK solver needs, in metres. */
+export interface ArmMetrics {
+  readonly upperLength: number;
+  readonly lowerLength: number;
+}
+
 export interface HumanoidRig {
   /** Character origin, at the feet. Position and yaw are applied to this. */
   readonly root: THREE.Group;
   readonly bones: Readonly<Record<BoneName, THREE.Object3D>>;
   /**
-   * Where a weapon attaches.
+   * Where the weapon lives.
    *
-   * Parented to the chest rather than the hand on purpose. Hanging it off the
-   * hand makes the weapon inherit the whole arm chain's rotation, so it points
-   * wherever the forearm happens to point and has to be counter-rotated by a
-   * transform that changes every time an arm angle is touched. Mounting on the
-   * chest — which is the bone that already follows the aim direction — keeps the
-   * barrel pointing where the character aims, and the arms are posed to meet it.
+   * Parented to the chest so it travels with the body, but its **orientation is
+   * set in world space** from the aim direction each frame rather than inherited.
+   * The arms are then solved onto grip points on the weapon, so the chain runs
+   * aim → weapon → hands, not hands → weapon. That ordering is what makes the
+   * rifle look held rather than attached.
    */
-  readonly weaponMount: THREE.Object3D;
+  readonly weaponSocket: THREE.Object3D;
+  /** Resolves a semantic attachment point to an object in this rig. */
+  attachment(point: AttachmentPoint): THREE.Object3D;
+  readonly armMetrics: ArmMetrics;
   dispose(): void;
 }
 
@@ -146,9 +172,9 @@ export function createHumanoidRig(): HumanoidRig {
     bones[name].add(mesh);
   }
 
-  const weaponMount = new THREE.Object3D();
-  weaponMount.name = "weapon-mount";
-  bones.Chest.add(weaponMount);
+  const weaponSocket = new THREE.Object3D();
+  weaponSocket.name = "weapon-socket";
+  bones.Chest.add(weaponSocket);
 
   // Facing marker on the head, pointing along −Z.
   const noseGeometry = new THREE.BoxGeometry(0.07, 0.07, 0.09);
@@ -158,10 +184,24 @@ export function createHumanoidRig(): HumanoidRig {
   nose.castShadow = true;
   bones.Head.add(nose);
 
+  const attachments: Readonly<Record<AttachmentPoint, THREE.Object3D>> = {
+    [AttachmentPoint.RightHand]: bones.HandR,
+    [AttachmentPoint.LeftHand]: bones.HandL,
+    [AttachmentPoint.WeaponSocket]: weaponSocket,
+    [AttachmentPoint.Head]: bones.Head,
+  };
+
   return {
     root,
     bones,
-    weaponMount,
+    weaponSocket,
+    attachment: (point) => attachments[point],
+    // Taken from the joint table rather than restated, so moving a joint cannot
+    // silently desynchronise the IK from the geometry.
+    armMetrics: {
+      upperLength: Math.abs(JOINTS.ForearmR.offset[1]),
+      lowerLength: Math.abs(JOINTS.HandR.offset[1]),
+    },
     dispose(): void {
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();

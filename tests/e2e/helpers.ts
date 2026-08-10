@@ -43,6 +43,7 @@ export interface GameSnapshot {
     distance: number;
     killed: boolean;
   };
+  hitMarkerCount: number;
   audioReady: boolean;
   audioPlays: number;
   targets: Array<{ id: string; health: number; maxHealth: number; alive: boolean }>;

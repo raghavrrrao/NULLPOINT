@@ -46,6 +46,34 @@ export interface PlayerConfig {
   readonly rotationDamp: number;
   /** Exponential rate at which the character turns to face the aim direction. */
   readonly aimRotationDamp: number;
+  /**
+   * How far the aim may swing from the character's facing before the legs turn
+   * while aiming, radians.
+   *
+   * Inside this the torso absorbs the difference and the legs hold still, which
+   * is what stops a third-person character spinning like a turret every time the
+   * camera moves.
+   */
+  readonly aimYawLimit: number;
+  /** The same deadzone while not aiming. Wider: the character is relaxed. */
+  readonly hipYawLimit: number;
+  /**
+   * Fraction of the limit the body over-rotates past once it starts turning.
+   *
+   * Turning only back to the limit leaves the aim pinned to the edge of the
+   * deadzone, so the legs stutter on every small camera movement.
+   */
+  readonly turnRecentre: number;
+  /** Rate the legs turn once the deadzone is exceeded. */
+  readonly turnDamp: number;
+  /**
+   * Hard ceiling on how fast the character may turn, radians per second.
+   *
+   * Exponential damping alone is proportional to the error, so a 170° swing
+   * starts with a lurch. Capping the rate is what keeps a large turn readable
+   * instead of a snap.
+   */
+  readonly maxTurnSpeed: number;
 
   /** Capsule radius, m. */
   readonly radius: number;
@@ -100,7 +128,12 @@ export const PLAYER_CONFIG: PlayerConfig = {
   jumpBufferTime: 0.12,
 
   rotationDamp: 16,
-  aimRotationDamp: 22,
+  aimRotationDamp: 14,
+  aimYawLimit: (48 * Math.PI) / 180,
+  hipYawLimit: (85 * Math.PI) / 180,
+  turnRecentre: 0.45,
+  turnDamp: 9,
+  maxTurnSpeed: 5.0,
 
   radius: 0.34,
   standHeight: 1.8,

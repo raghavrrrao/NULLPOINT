@@ -18,10 +18,14 @@ import { ASSAULT_RIFLE } from "@nullpoint/shared";
  */
 
 export interface RifleModel {
-  /** Attach this to a hand or mount joint. */
+  /** Attach this to the weapon socket. */
   readonly root: THREE.Group;
   /** Empty at the barrel tip. Muzzle flash and tracers originate here. */
   readonly muzzle: THREE.Object3D;
+  /** Where the trigger hand goes — the pistol grip. */
+  readonly gripRight: THREE.Object3D;
+  /** Where the support hand goes — the handguard. */
+  readonly gripLeft: THREE.Object3D;
   dispose(): void;
 }
 
@@ -70,9 +74,26 @@ export function createRifleModel(): RifleModel {
   muzzle.position.set(mx, my, mz);
   root.add(muzzle);
 
+  // Hand targets, on the weapon rather than on the character: the arms are
+  // solved onto these, so the grip is correct by construction.
+  const gripRight = new THREE.Object3D();
+  gripRight.name = "grip-right";
+  gripRight.position.set(0, -0.035, -0.02);
+  root.add(gripRight);
+
+  const gripLeft = new THREE.Object3D();
+  gripLeft.name = "grip-left";
+  // Kept within the support arm's reach. The handguard runs to −0.55, but a
+  // grip out there is 0.62 m from the left shoulder and the arm spans 0.54 m,
+  // so the hand could never close on it.
+  gripLeft.position.set(0, 0.02, -0.22);
+  root.add(gripLeft);
+
   return {
     root,
     muzzle,
+    gripRight,
+    gripLeft,
     dispose(): void {
       for (const geometry of geometries) geometry.dispose();
       for (const material of Object.values(materials)) material.dispose();

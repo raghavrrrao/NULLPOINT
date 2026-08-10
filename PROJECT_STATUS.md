@@ -359,6 +359,73 @@ the above.
 
 ---
 
+### Character and weapon handling polish (2026-08-10)
+
+A follow-up pass on presentation only; the combat rules were not touched.
+
+**The problem.** The rifle sat diagonally across the torso and did not connect to
+the hands, and the character rotated to face the camera every frame like a
+turret on a base.
+
+**Weapon handling.** The chain was inverted. It used to pose the arms from
+hand-authored angles and mount the weapon at a fixed chest offset, hoping the
+two would line up. It now runs:
+
+```
+aim direction  →  weapon transform  →  grip points  →  two-bone arm IK  →  hands
+```
+
+The weapon is placed first from the aim direction, and both arms are solved onto
+grip anchors on the weapon itself, so the grip is correct by construction rather
+than by tuning. Measured hand-to-grip error is **0.000 m** in every stance except
+sprint (0.07 m, where the carry is deliberately across the body).
+
+Three stances — HIP, AIM and SPRINT — blend by two independent weights, so
+aiming out of a sprint pulls the weapon up smoothly without a special case.
+
+**Character rotation.** Replaced "face the camera while aiming" with a deadzone
+model, which is the main thing separating a prototype from a shooter:
+
+- Moving: the legs follow the direction of travel, or the aim direction while
+  aiming so a strafing player keeps the weapon on target.
+- Standing: the legs hold still while the torso absorbs the offset, and only
+  turn once the aim leaves the deadzone (48° aiming, 85° at the hip). The turn
+  over-rotates slightly past the limit so the aim is not left pinned to the edge.
+- Every turn is capped by `maxTurnSpeed`, because exponential damping alone
+  starts a large swing with a lurch.
+
+**Upper body.** The torso twists up to 55° toward the aim and pitches with it;
+the head takes the remainder, so the character keeps watching the target even
+when the torso has run out of twist. Legs stay entirely on the locomotion clips.
+
+**Rig correction.** The bone table had the left and right sides mirrored: with a
+−Z forward axis the character's right is +X, but `ArmR` sat at −X. The weapon was
+therefore held on the side away from the camera's shoulder offset and hid behind
+the torso. Sides are now correct and the weapon is visible over the shoulder.
+
+**Camera.** Aim framing widened from 2.1 m / 54° to 2.7 m / 58°, where the body
+no longer dominates the frame. All Phase 1 collision behaviour is untouched and
+still passes its regression tests.
+
+**Prepared for a real character.** `AttachmentPoint` names the sockets
+semantically (`RIGHT_HAND`, `LEFT_HAND`, `WEAPON_SOCKET`, `HEAD`) and arm
+segment lengths are read from the joint table, so a rigged GLB maps its own
+bones without the weapon system knowing anything about placeholder geometry.
+
+**Remaining limitations.**
+
+- The mannequin is boxy and roughly as wide as the rifle is long, so from
+  directly behind the weapon is largely occluded — it points away from the
+  camera and is foreshortened. A real character with human proportions fixes
+  this; further tuning of the placeholder is not worth the effort
+  (`ASSET_CREDITS.md` §6.1).
+- The support hand falls ~0.07 m short of its grip during sprint, where the
+  weapon is carried across the body at the edge of the arm's reach.
+- There are no dedicated fire or reload animations; the weapon kick and the
+  recoil offset carry that feedback.
+
+---
+
 ## Phase 3 — Server Core & Transport ⛔
 
 **Goal:** A server that accepts connections, validates ruthlessly, and ticks.
@@ -619,3 +686,5 @@ Architectural decisions that shaped the plan. Detailed records go in `docs/adr/`
 | 2026-08-10 | Camera orientation set from yaw/pitch, not `lookAt(pivot)` | With a shoulder offset, looking at the pivot makes the view direction depend on boom length, so aiming rotated the crosshair off target. |
 | 2026-08-10 | Weapon mounts on the chest joint, not the hand | Hand mounting inherits the arm chain's rotation and needs a counter-transform that breaks whenever an arm angle changes. |
 | 2026-08-10 | Recoil is a decaying view offset, not a write to the player's pitch | A burst climbs and settles by itself; writing it into pitch would permanently re-aim the player every burst. |
+| 2026-08-10 | Arms are solved by IK onto grips on the weapon, not posed by hand | Placing the weapon first and solving the hands onto it makes the grip correct by construction; the reverse order can only ever be approximated by tuning. |
+| 2026-08-10 | The legs turn on a deadzone, not toward the camera every frame | Rotating the whole character with the camera is what makes a third-person prototype feel like a turret. |

@@ -23,6 +23,9 @@ const TARGETS = {
   ELEVATED: { x: 22, y: 3.4, z: 26.5 },
 } as const;
 
+/** Centre of the cover block's front face, which shields the COVER target. */
+const COVER_BLOCK = { x: 13.8, y: 0.7, z: 21.5 } as const;
+
 /** Puts the player on the firing line with the pointer captured. */
 async function readyAtRange(page: import("@playwright/test").Page): Promise<void> {
   await startGame(page);
@@ -208,7 +211,9 @@ test.describe("aiming", () => {
     await page.mouse.down({ button: "right" });
     const aimed = await expectEventually(page, "aim engaged", (s) => s.aimAmount > 0.98);
     expect(aimed.aiming).toBe(true);
-    expect(aimed.fov).toBeLessThan(58);
+    // Meaningfully narrower than the hip view, rather than a hard-coded value
+    // that has to be edited every time the framing is tuned.
+    expect(aimed.fov).toBeLessThan(hip.fov - 10);
     // Boom pulls in, but not into the character.
     expect(aimed.cameraBoom).toBeLessThan(hip.cameraBoom);
     expect(aimed.cameraBoom).toBeGreaterThan(1.5);
@@ -337,14 +342,14 @@ test.describe("hitscan and damage", () => {
   test("cover blocks shots at the protected part of a target", async ({ page }) => {
     await readyAtRange(page);
 
-    // Aimed low, into the block itself. Note this is deliberately well below the
-    // plate rather than just under its top edge: the crosshair ray starts at the
-    // camera and the bullet starts at the muzzle, roughly a metre apart, so near
-    // a cover edge the two genuinely disagree about what is blocked. That
-    // parallax is inherent to third person, not a defect — the test asserts the
-    // unambiguous case.
+    // Aimed at the middle of the cover block's own front face, not at a point
+    // behind it. The crosshair ray starts at the camera and the bullet at the
+    // muzzle, so near a cover edge the two genuinely disagree about what is
+    // blocked — inherent third-person parallax, not a defect. Aiming at the
+    // centre of a 2.4 × 1.5 m face keeps the case unambiguous for both rays and
+    // independent of how the camera happens to be framed.
     await page.mouse.down({ button: "right" });
-    await aimAt(page, TARGETS.COVER.x, 0.8, TARGETS.COVER.z);
+    await aimAt(page, COVER_BLOCK.x, COVER_BLOCK.y, COVER_BLOCK.z);
 
     // The crosshair must report the block, not the target behind it.
     expect((await snapshot(page)).aimTargetId, "the block should be in the way").toBe("");
@@ -387,13 +392,16 @@ test.describe("hit feedback", () => {
     await page.mouse.down({ button: "right" });
     await aimAt(page, TARGETS.CLOSE.x, TARGETS.CLOSE.y, TARGETS.CLOSE.z);
 
+    const before = (await snapshot(page)).hitMarkerCount;
     await page.mouse.down({ button: "left" });
     await expectEventually(page, "a hit landed", (s) => s.lastShot.onTarget);
-    const opacity = await page.getByTestId("hit-marker").evaluate((el) => Number(getComputedStyle(el).opacity));
+    await frames(page, 2);
+    const after = await snapshot(page);
     await page.mouse.up({ button: "left" });
     await page.mouse.up({ button: "right" });
 
-    expect(opacity).toBeGreaterThan(0);
+    // Counted rather than sampled from the DOM: the marker lasts 180 ms.
+    expect(after.hitMarkerCount).toBeGreaterThan(before);
   });
 
   test("does not show the hit marker on a miss", async ({ page }) => {
@@ -404,6 +412,7 @@ test.describe("hit feedback", () => {
 
     const state = await snapshot(page);
     expect(state.lastShot.onTarget).toBe(false);
+    expect(state.hitMarkerCount, "a miss must not raise a hit marker").toBe(0);
     const opacity = await page.getByTestId("hit-marker").evaluate((el) => Number(getComputedStyle(el).opacity));
     expect(opacity).toBe(0);
   });

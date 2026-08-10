@@ -102,9 +102,17 @@ test.describe("movement", () => {
     expect(Math.abs(forward.yaw)).toBeLessThan(0.25);
 
     await settle(page);
-    await holdKey(page, "s", 30);
-    const backward = await snapshot(page);
-    // Facing reversed: yaw should now be near ±π.
+    // Waited on rather than counted: turning is capped by `maxTurnSpeed`, so a
+    // 180° reversal takes a known minimum time and a fixed frame count is not a
+    // fixed amount of simulated time.
+    await page.keyboard.down("s");
+    const backward = await expectEventually(
+      page,
+      "character turned to face backward",
+      (st) => Math.abs(Math.abs(st.yaw) - Math.PI) < 0.35,
+      300,
+    );
+    await page.keyboard.up("s");
     expect(Math.abs(Math.abs(backward.yaw) - Math.PI)).toBeLessThan(0.35);
   });
 
@@ -219,13 +227,18 @@ test.describe("jump", () => {
 
     // Examine only the first airborne window. Beyond it the character has
     // landed, and jumping again there is correct, not a double jump.
+    //
+    // The window ends on either the grounded flag or a return to floor height:
+    // one sampled frame can span several simulation ticks, so a landing and an
+    // immediate re-jump can both happen between two samples and the flag alone
+    // would never show it.
     const start = samples.findIndex((s) => !s.grounded);
     expect(start, "expected the character to leave the ground").toBeGreaterThanOrEqual(0);
 
     const airborne: typeof samples = [];
     for (let i = start; i < samples.length; i++) {
       const sample = samples[i];
-      if (sample === undefined || sample.grounded) break;
+      if (sample === undefined || sample.grounded || sample.position.y < 0.08) break;
       airborne.push(sample);
     }
 

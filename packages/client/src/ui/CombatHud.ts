@@ -26,6 +26,7 @@ export class CombatHud {
   private readonly elements: CombatHudElements;
   private hitRemaining = 0;
   private killRemaining = 0;
+  private markers = 0;
   private lastAmmoText = "";
   private lastStateClass = "";
   private visible = true;
@@ -43,7 +44,18 @@ export class CombatHud {
     this.elements.hitMarker.style.display = display;
   }
 
+  /**
+   * Hit markers shown since construction.
+   *
+   * Observable where the DOM opacity is not: the marker lasts 180 ms, which a
+   * test sampling over a round trip on a slow renderer can step straight over.
+   */
+  get markerCount(): number {
+    return this.markers;
+  }
+
   showHitMarker(killed: boolean): void {
+    this.markers += 1;
     this.hitRemaining = HIT_MARKER_SECONDS;
     if (killed) this.killRemaining = KILL_MARKER_SECONDS;
   }

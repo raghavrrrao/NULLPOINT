@@ -13,7 +13,7 @@
  */
 
 import type { PlayerConfig } from "../constants/player.ts";
-import { clamp, dampAngle, type Vec3 } from "../math/index.ts";
+import { angleDelta, clamp, dampAngle, wrapAngle, type Vec3 } from "../math/index.ts";
 import { MovementState, type CharacterSimState, type MoveIntent } from "../types/index.ts";
 
 /**
@@ -62,9 +62,13 @@ export function selectTargetSpeed(
   crouching: boolean,
   config: PlayerConfig,
 ): number {
+  // Aiming suppresses sprint rather than stacking with it: a shouldered weapon
+  // and a full sprint are mutually exclusive stances, and letting both apply at
+  // once makes the transition between them impossible to read.
+  const sprinting = intent.sprint && !intent.aim;
   const base = crouching
     ? config.crouchSpeed
-    : intent.sprint
+    : sprinting
       ? config.sprintSpeed
       : intent.walk
         ? config.walkSpeed
@@ -192,6 +196,63 @@ export function tryConsumeJump(state: CharacterSimState, config: PlayerConfig): 
   return true;
 }
 
+/**
+ * Turns the character's legs.
+ *
+ * Two regimes, which is what separates a polished third-person shooter from a
+ * prototype:
+ *
+ * - **Moving.** The legs follow the direction of travel, or the aim direction
+ *   while aiming, so a strafing player keeps the weapon on target.
+ * - **Standing.** The legs hold still until the aim swings past a deadzone the
+ *   torso can no longer cover, then turn to catch up. Rotating the whole
+ *   character toward the camera every frame is what makes a prototype feel like
+ *   a turret on a base.
+ */
+export function resolveFacing(
+  state: CharacterSimState,
+  intent: MoveIntent,
+  hasInput: boolean,
+  wishDir: Vec3,
+  dt: number,
+  config: PlayerConfig,
+): void {
+  if (hasInput) {
+    const target = intent.aim ? intent.cameraYaw : yawFromDirection(wishDir);
+    const rate = intent.aim ? config.aimRotationDamp : config.rotationDamp;
+    turnToward(state, target, rate, dt, config);
+    return;
+  }
+
+  const limit = intent.aim ? config.aimYawLimit : config.hipYawLimit;
+  const offset = angleDelta(state.yaw, intent.cameraYaw);
+  if (Math.abs(offset) <= limit) return;
+
+  // Over-rotate past the limit so the aim does not end up pinned to the edge of
+  // the deadzone, where every twitch of the camera would restart the turn.
+  const target = intent.cameraYaw - Math.sign(offset) * limit * config.turnRecentre;
+  turnToward(state, target, config.turnDamp, dt, config);
+}
+
+/**
+ * Eases the facing toward `target`, never faster than `maxTurnSpeed`.
+ *
+ * The damping gives the ease-out; the cap stops the large-error case from
+ * starting with a lurch, which is what reads as a snap.
+ */
+function turnToward(
+  state: CharacterSimState,
+  target: number,
+  rate: number,
+  dt: number,
+  config: PlayerConfig,
+): void {
+  const eased = dampAngle(state.yaw, target, rate, dt);
+  const step = angleDelta(state.yaw, eased);
+  const maxStep = config.maxTurnSpeed * dt;
+  state.yaw = wrapAngle(state.yaw + clamp(step, -maxStep, maxStep));
+}
+
 const scratchWishDir: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
@@ -228,14 +289,7 @@ export function stepCharacterMovement(
     applyVerticalMotion(state.velocity, state.grounded, dt, config);
   }
 
-  // Aiming faces the camera; otherwise the character turns to where it is going.
-  // Without this the weapon would point along the path of travel while the
-  // player aims somewhere else entirely.
-  if (intent.aim) {
-    state.yaw = dampAngle(state.yaw, intent.cameraYaw, config.aimRotationDamp, dt);
-  } else if (hasInput) {
-    state.yaw = dampAngle(state.yaw, yawFromDirection(wishDir), config.rotationDamp, dt);
-  }
+  resolveFacing(state, intent, hasInput, wishDir, dt, config);
 
   state.movementState = resolveMovementState(
     Math.hypot(state.velocity.x, state.velocity.z),

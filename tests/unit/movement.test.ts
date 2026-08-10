@@ -332,15 +332,79 @@ describe("stepCharacterMovement", () => {
     assert.ok(Math.abs(wrapAngle(s.yaw)) < 0.01, `yaw=${s.yaw}`);
   });
 
-  it("does not rotate the character when there is no movement input", () => {
+  it("holds its facing while standing still and the aim stays inside the deadzone", () => {
     const s = createCharacterSimState(vec3());
     s.grounded = true;
-    s.yaw = 1.234;
+    s.yaw = 0;
     const d = vec3();
+    // Well inside hipYawLimit: the torso covers this, the legs must not move.
     for (let i = 0; i < 60; i++) {
-      stepCharacterMovement(s, intentOf({ cameraYaw: -2.0 }), SIM_DT, cfg, d);
+      stepCharacterMovement(s, intentOf({ cameraYaw: 0.6 }), SIM_DT, cfg, d);
     }
-    assert.equal(s.yaw, 1.234);
+    assert.equal(s.yaw, 0);
+  });
+
+  it("turns to follow the aim once it leaves the deadzone", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    s.yaw = 0;
+    const d = vec3();
+    const target = 2.6;
+    for (let i = 0; i < 240; i++) {
+      stepCharacterMovement(s, intentOf({ cameraYaw: target }), SIM_DT, cfg, d);
+    }
+    // Settles inside the deadzone rather than snapping onto the aim exactly.
+    const offset = Math.abs(wrapAngle(target - s.yaw));
+    assert.ok(offset < cfg.hipYawLimit, `offset ${offset.toFixed(3)} should be within the deadzone`);
+    assert.ok(offset > 0.05, "the body should stop short of the aim, not snap onto it");
+  });
+
+  it("turns gradually rather than snapping", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    s.yaw = 0;
+    const d = vec3();
+    stepCharacterMovement(s, intentOf({ cameraYaw: 3.0 }), SIM_DT, cfg, d);
+    // One tick must not cover more than a small fraction of the turn.
+    assert.ok(Math.abs(s.yaw) < 0.2, `turned ${s.yaw.toFixed(3)} rad in a single tick`);
+  });
+
+  it("uses a tighter deadzone while aiming than at the hip", () => {
+    assert.ok(cfg.aimYawLimit < cfg.hipYawLimit);
+
+    const turnedAt = (aim: boolean, cameraYaw: number): number => {
+      const s = createCharacterSimState(vec3());
+      s.grounded = true;
+      const d = vec3();
+      for (let i = 0; i < 60; i++) {
+        stepCharacterMovement(s, intentOf({ cameraYaw, aim }), SIM_DT, cfg, d);
+      }
+      return Math.abs(s.yaw);
+    };
+
+    // An offset between the two limits turns the body when aiming, not otherwise.
+    const between = (cfg.aimYawLimit + cfg.hipYawLimit) / 2;
+    assert.ok(turnedAt(true, between) > 0.01, "aiming should turn the body here");
+    assert.equal(turnedAt(false, between), 0, "hip stance should hold still here");
+  });
+
+  it("faces the aim direction while moving and aiming", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    const d = vec3();
+    // Strafing right while aiming forward: the body should face the aim, not the
+    // direction of travel.
+    for (let i = 0; i < 180; i++) {
+      stepCharacterMovement(s, intentOf({ right: 1, cameraYaw: 0, aim: true }), SIM_DT, cfg, d);
+      s.velocity.y = 0;
+    }
+    assert.ok(Math.abs(wrapAngle(s.yaw)) < 0.05, `yaw ${s.yaw.toFixed(3)} should face the aim`);
+  });
+
+  it("suppresses sprint while aiming", () => {
+    const aimSprint = selectTargetSpeed(intentOf({ sprint: true, aim: true }), false, cfg);
+    assert.equal(aimSprint, cfg.runSpeed);
+    assert.equal(selectTargetSpeed(intentOf({ sprint: true }), false, cfg), cfg.sprintSpeed);
   });
 
   it("passes through WALK on the way up to RUN", () => {

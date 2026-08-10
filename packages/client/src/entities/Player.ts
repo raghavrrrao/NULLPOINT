@@ -18,7 +18,7 @@ import {
 
 import { AnimationController } from "../character/AnimationController.ts";
 import type { CharacterAsset } from "../character/CharacterAsset.ts";
-import { WeaponPose } from "../character/weaponPose.ts";
+import { WeaponPose, type PoseInput, type WeaponGrips } from "../character/weaponPose.ts";
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 
 const config = PLAYER_CONFIG;
@@ -77,10 +77,10 @@ export class Player {
 
     this.animation = new AnimationController(asset);
 
-    // The weapon mounts on the chest joint the rig provides. A GLB without one
-    // falls back to the character root, so the weapon is still visible and still
-    // follows the character.
-    this.weaponJoint = asset.rig?.weaponMount ?? asset.root;
+    // The weapon mounts on the semantic weapon socket the rig provides. A GLB
+    // without one falls back to the character root, so the weapon is still
+    // visible and still follows the character.
+    this.weaponJoint = asset.rig?.weaponSocket ?? asset.root;
     this.pose = asset.rig !== null ? new WeaponPose(asset.rig) : null;
   }
 
@@ -95,19 +95,33 @@ export class Player {
   }
 
   /**
+   * Distance from each hand to its grip on the weapon, metres.
+   *
+   * The objective measure of "the rifle is actually held": if the IK is solving,
+   * both are essentially zero. Development hook.
+   */
+  handGripError(): { right: number; left: number } {
+    return this.pose?.gripError() ?? { right: -1, left: -1 };
+  }
+
+  /** Tells the pose where the weapon's hand grips are. */
+  setWeaponGrips(grips: WeaponGrips | null): void {
+    this.pose?.setGrips(grips);
+  }
+
+  /** 0 = standing, 1 = fully crouched. Drives the weapon's crouch offset. */
+  get crouchBlend(): number {
+    return this.visualCrouchBlend;
+  }
+
+  /**
    * Applies the upper-body weapon pose.
    *
    * Called after {@link render} so it overrides the bones the animation mixer
    * has just written, leaving the legs to the locomotion clips.
    */
-  applyWeaponPose(
-    aiming: boolean,
-    yawOffset: number,
-    pitch: number,
-    recoilPitch: number,
-    dt: number,
-  ): void {
-    this.pose?.apply(aiming, yawOffset, pitch, recoilPitch, dt);
+  applyWeaponPose(input: PoseInput, dt: number): void {
+    this.pose?.apply(input, dt);
   }
 
   /**

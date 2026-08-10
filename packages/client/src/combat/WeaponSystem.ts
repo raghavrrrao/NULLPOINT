@@ -135,6 +135,11 @@ export class WeaponSystem {
     this.effects = new ImpactEffects();
   }
 
+  /** Hand targets on the weapon, for the character's arm IK. */
+  get grips(): { right: THREE.Object3D; left: THREE.Object3D } {
+    return { right: this.model.gripRight, left: this.model.gripLeft };
+  }
+
   /** Impact marks live in world space, so they hang off the scene, not the gun. */
   get effectsGroup(): THREE.Object3D {
     return this.effects.group;

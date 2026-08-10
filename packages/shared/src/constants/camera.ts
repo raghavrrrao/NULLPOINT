@@ -91,12 +91,15 @@ export const CAMERA_CONFIG: CameraConfig = {
   cornerPitch: 1.25,
   liftDamp: 9,
 
-  aimDistance: 2.1,
-  aimShoulderOffset: 0.8,
+  // Far enough back that the character does not dominate the frame. At 2.1 m
+  // with a 54° field of view the body filled roughly a third of the screen and
+  // the weapon disappeared behind it.
+  aimDistance: 2.7,
+  aimShoulderOffset: 0.78,
   // Kept small on purpose: with the view direction fixed by yaw and pitch, any
   // camera translation slides the world point under the crosshair.
   aimPivotLift: 0.06,
-  aimFov: 54,
+  aimFov: 58,
   aimTransitionRate: 11,
 
   pivotHeight: 1.62,

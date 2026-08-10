@@ -8,6 +8,7 @@ import {
   wrapAngle,
   type MoveIntent,
 } from "@nullpoint/shared";
+
 import * as THREE from "three";
 
 import { createAudioSystem, type AudioSystem } from "../audio/AudioSystem.ts";
@@ -109,6 +110,8 @@ export class Game {
     // Impact marks and tracers are world-space, so they hang off the scene
     // rather than the weapon — otherwise they would follow the gun around.
     this.environment.scene.add(this.weapon.effectsGroup);
+    // The arms are solved onto these, so the grip is correct by construction.
+    this.player.setWeaponGrips(this.weapon.grips);
 
     this.input = new InputManager(this.renderer.domElement);
     this.input.onPointerLockChanged(({ locked }) => {
@@ -206,10 +209,15 @@ export class Game {
     // Applied after the animation mixer so the weapon pose wins on the bones it
     // touches, leaving legs and hips entirely to the locomotion clips.
     this.player.applyWeaponPose(
-      this.intent.aim,
-      wrapAngle(this.camera.viewYaw - this.player.state.yaw),
-      this.camera.viewPitch,
-      this.weapon.recoil.pitch,
+      {
+        aiming: this.intent.aim,
+        sprinting: this.intent.sprint && !this.intent.aim,
+        aimYaw: this.camera.viewYaw,
+        aimPitch: this.camera.viewPitch,
+        bodyYaw: this.player.state.yaw,
+        recoilPitch: this.weapon.recoil.pitch,
+        crouchBlend: this.player.crouchBlend,
+      },
       dt,
     );
     this.weapon.render(dt);
@@ -284,6 +292,10 @@ export class Game {
 
       aiming: this.weapon.runtime.aiming,
       aimAmount: this.camera.aimAmount,
+      bodyYaw: this.player.state.yaw,
+      bodyYawOffset: wrapAngle(this.camera.viewYaw - this.player.state.yaw),
+      poseAimBlend: this.player.aimBlend,
+      handGripError: this.player.handGripError(),
       fov: this.renderer.camera.fov,
       weaponId: this.weapon.definition.id,
       weaponState: this.weapon.runtime.state,
@@ -299,6 +311,7 @@ export class Game {
       effectCount: this.weapon.effects.activeCount,
       aimTargetId: this.weapon.currentAimTargetId,
       lastShot: { ...this.weapon.lastShotOutcome },
+      hitMarkerCount: this.combatHud.markerCount,
       audioReady: this.audio.isReady,
       audioPlays: this.audio.playCount,
       targets: this.arena.targets.map((target) => ({
