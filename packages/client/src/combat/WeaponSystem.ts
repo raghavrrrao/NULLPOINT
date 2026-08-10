@@ -79,6 +79,7 @@ export class WeaponSystem {
   // Scratch objects, reused every shot. Nothing here is allocated while firing.
   private readonly rayHit: RayHit = PhysicsWorld.createRayHit();
   private readonly aimHit: RayHit = PhysicsWorld.createRayHit();
+  private readonly scratchQuaternion = new THREE.Quaternion();
   private readonly muzzleWorld = new THREE.Vector3();
   private readonly aimPoint = new THREE.Vector3();
   private readonly shotDirection: Vec3 = { x: 0, y: 0, z: 0 };
@@ -364,6 +365,17 @@ export class WeaponSystem {
 
   get muzzleFlashCount(): number {
     return this.muzzleFlash.triggerCount;
+  }
+
+  /**
+   * The direction the barrel points, in world space.
+   *
+   * The model is built along −Z (`CLAUDE.md` §5), so this is −Z through the
+   * weapon's world rotation. Used by the aim-orientation regression test.
+   */
+  weaponForward(out: THREE.Vector3): THREE.Vector3 {
+    this.model.root.getWorldQuaternion(this.scratchQuaternion);
+    return out.set(0, 0, -1).applyQuaternion(this.scratchQuaternion);
   }
 
   /** Muzzle position in world space. Development hook for placement checks. */

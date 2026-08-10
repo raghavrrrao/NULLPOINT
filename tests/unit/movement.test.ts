@@ -6,6 +6,7 @@ import { SIM_DT } from "../../packages/shared/src/constants/sim.ts";
 import { damp, dampAngle, vec3, wrapAngle } from "../../packages/shared/src/math/index.ts";
 import {
   accelerateHorizontal,
+  isBackpedalling,
   applyVerticalMotion,
   commitMovementResult,
   computeWishDirection,
@@ -388,6 +389,47 @@ describe("stepCharacterMovement", () => {
     assert.equal(turnedAt(false, between), 0, "hip stance should hold still here");
   });
 
+  it("does not spin around when the player backs up", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    s.yaw = 0;
+    const d = vec3();
+    // Holding S with the camera facing the same way must walk the character
+    // backward, not turn it round and run it away from the camera.
+    for (let i = 0; i < 240; i++) {
+      stepCharacterMovement(s, intentOf({ forward: -1, cameraYaw: 0 }), SIM_DT, cfg, d);
+      s.velocity.y = 0;
+    }
+    assert.ok(Math.abs(wrapAngle(s.yaw)) < 0.05, `yaw ${s.yaw.toFixed(3)} — the character turned around`);
+    // And it genuinely travels backward, along +Z when facing −Z.
+    assert.ok(s.velocity.z > 1, `velocity.z ${s.velocity.z.toFixed(2)} should be positive (backward)`);
+  });
+
+  it("still turns into a pure strafe when not aiming", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    s.yaw = 0;
+    const d = vec3();
+    for (let i = 0; i < 240; i++) {
+      stepCharacterMovement(s, intentOf({ right: 1, cameraYaw: 0 }), SIM_DT, cfg, d);
+      s.velocity.y = 0;
+    }
+    // Strafing right with no aim: the character runs where it is going.
+    assert.ok(Math.abs(wrapAngle(s.yaw + Math.PI / 2)) < 0.1, `yaw ${s.yaw.toFixed(3)}`);
+  });
+
+  it("keeps facing the aim while backing up and aiming", () => {
+    const s = createCharacterSimState(vec3());
+    s.grounded = true;
+    s.yaw = 0;
+    const d = vec3();
+    for (let i = 0; i < 240; i++) {
+      stepCharacterMovement(s, intentOf({ forward: -1, cameraYaw: 0, aim: true }), SIM_DT, cfg, d);
+      s.velocity.y = 0;
+    }
+    assert.ok(Math.abs(wrapAngle(s.yaw)) < 0.05, `yaw ${s.yaw.toFixed(3)}`);
+  });
+
   it("faces the aim direction while moving and aiming", () => {
     const s = createCharacterSimState(vec3());
     s.grounded = true;
@@ -439,6 +481,19 @@ describe("stepCharacterMovement", () => {
     const c = distanceAt(1 / 144);
     assert.ok(Math.abs(a - b) < 0.1, `30Hz=${a.toFixed(3)} 60Hz=${b.toFixed(3)}`);
     assert.ok(Math.abs(b - c) < 0.1, `60Hz=${b.toFixed(3)} 144Hz=${c.toFixed(3)}`);
+  });
+});
+
+describe("isBackpedalling", () => {
+  it("is true for straight back and back-dominant diagonals", () => {
+    assert.equal(isBackpedalling(intentOf({ forward: -1 })), true);
+    assert.equal(isBackpedalling(intentOf({ forward: -1, right: 1 })), true);
+  });
+
+  it("is false for forward, strafe and idle", () => {
+    assert.equal(isBackpedalling(intentOf({ forward: 1 })), false);
+    assert.equal(isBackpedalling(intentOf({ right: 1 })), false);
+    assert.equal(isBackpedalling(intentOf()), false);
   });
 });
 

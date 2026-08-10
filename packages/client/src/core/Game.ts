@@ -296,6 +296,8 @@ export class Game {
       bodyYawOffset: wrapAngle(this.camera.viewYaw - this.player.state.yaw),
       poseAimBlend: this.player.aimBlend,
       handGripError: this.player.handGripError(),
+      poseAngles: this.player.poseAngles(),
+      weaponForward: this.weapon.weaponForward(this.cameraWorldDirection.clone()).toArray(),
       fov: this.renderer.camera.fov,
       weaponId: this.weapon.definition.id,
       weaponState: this.weapon.runtime.state,

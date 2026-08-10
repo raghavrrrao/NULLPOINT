@@ -12,8 +12,13 @@ import { BoneName } from "./rig.ts";
  * an `AnimationMixer` with cross-fades, exactly as clips from a GLB would be, so
  * `AnimationController` does not know or care which source it is driving.
  *
- * Angles are radians about the joint's local X axis unless noted. Positive
- * swings the limb toward −Z (forward).
+ * Angles are radians about the joint's local X axis unless noted.
+ *
+ * **Two opposite sign conventions live in this rig, and mixing them up inverts
+ * the pose.** Limbs hang along local −Y, so a positive X rotation swings them
+ * toward −Z, which is forward. The spine, chest and head extend along +Y, so the
+ * same positive rotation tips them *backward*. A forward lean of the torso is
+ * therefore a **negative** X rotation.
  */
 
 /** Speed each locomotion clip was authored for, m/s. Drives playback rate. */
@@ -81,9 +86,10 @@ function locomotionClip(options: {
     rotationTrack(BoneName.ForearmL, t, [[-A * 0.5, 0, 0], [-A * 0.8, 0, 0], [-A * 0.35, 0, 0], [-A * 0.8, 0, 0], [-A * 0.5, 0, 0]]),
     rotationTrack(BoneName.ForearmR, t, [[-A * 0.35, 0, 0], [-A * 0.8, 0, 0], [-A * 0.5, 0, 0], [-A * 0.8, 0, 0], [-A * 0.35, 0, 0]]),
 
-    rotationTrack(BoneName.Spine, t, [[lean, 0, 0], [lean, 0, 0], [lean, 0, 0], [lean, 0, 0], [lean, 0, 0]]),
+    // Negative: the spine extends +Y, so this leans the runner *into* the run.
+    rotationTrack(BoneName.Spine, t, [[-lean, 0, 0], [-lean, 0, 0], [-lean, 0, 0], [-lean, 0, 0], [-lean, 0, 0]]),
     // Counter-rotate the head so it stays level as the spine leans.
-    rotationTrack(BoneName.Head, t, [[-lean * 0.7, 0, 0], [-lean * 0.7, 0, 0], [-lean * 0.7, 0, 0], [-lean * 0.7, 0, 0], [-lean * 0.7, 0, 0]]),
+    rotationTrack(BoneName.Head, t, [[lean * 0.7, 0, 0], [lean * 0.7, 0, 0], [lean * 0.7, 0, 0], [lean * 0.7, 0, 0], [lean * 0.7, 0, 0]]),
     // Two bobs per stride: one for each footfall.
     hipHeightTrack(t, [HIP_REST_Y, HIP_REST_Y + bob, HIP_REST_Y, HIP_REST_Y + bob, HIP_REST_Y]),
   ];
@@ -96,7 +102,7 @@ function idleClip(): THREE.AnimationClip {
   const t = [0, d * 0.5, d];
   return new THREE.AnimationClip(MovementState.Idle, d, [
     hipHeightTrack(t, [HIP_REST_Y, HIP_REST_Y - 0.014, HIP_REST_Y]),
-    rotationTrack(BoneName.Spine, t, [[0.02, 0, 0], [0.045, 0, 0], [0.02, 0, 0]]),
+    rotationTrack(BoneName.Spine, t, [[-0.02, 0, 0], [-0.045, 0, 0], [-0.02, 0, 0]]),
     rotationTrack(BoneName.Chest, t, [[0, 0.02, 0], [0, -0.02, 0], [0, 0.02, 0]]),
     rotationTrack(BoneName.Head, t, [[0, -0.05, 0], [0, 0.06, 0], [0, -0.05, 0]]),
     rotationTrack(BoneName.ArmL, t, [[0.03, 0, -0.11], [0.06, 0, -0.13], [0.03, 0, -0.11]]),
@@ -123,7 +129,7 @@ function jumpClip(): THREE.AnimationClip {
     rotationTrack(BoneName.ArmR, t, [[-1.5, 0, 0.35], [-1.15, 0, 0.4], [-0.85, 0, 0.45]]),
     rotationTrack(BoneName.ForearmL, t, [[-0.5, 0, 0], [-0.35, 0, 0], [-0.25, 0, 0]]),
     rotationTrack(BoneName.ForearmR, t, [[-0.5, 0, 0], [-0.35, 0, 0], [-0.25, 0, 0]]),
-    rotationTrack(BoneName.Spine, t, [[0.16, 0, 0], [0.08, 0, 0], [0.02, 0, 0]]),
+    rotationTrack(BoneName.Spine, t, [[-0.16, 0, 0], [-0.08, 0, 0], [-0.02, 0, 0]]),
     hipHeightTrack(t, [HIP_REST_Y - 0.03, HIP_REST_Y, HIP_REST_Y + 0.01]),
   ]);
 }
@@ -141,7 +147,7 @@ function fallClip(): THREE.AnimationClip {
     rotationTrack(BoneName.ArmR, t, [[-0.55, 0, 0.85], [-0.7, 0, 0.95], [-0.55, 0, 0.85]]),
     rotationTrack(BoneName.ForearmL, t, [[-0.5, 0, 0], [-0.6, 0, 0], [-0.5, 0, 0]]),
     rotationTrack(BoneName.ForearmR, t, [[-0.5, 0, 0], [-0.6, 0, 0], [-0.5, 0, 0]]),
-    rotationTrack(BoneName.Spine, t, [[-0.06, 0, 0], [-0.1, 0, 0], [-0.06, 0, 0]]),
+    rotationTrack(BoneName.Spine, t, [[0.06, 0, 0], [0.1, 0, 0], [0.06, 0, 0]]),
     hipHeightTrack(t, [HIP_REST_Y, HIP_REST_Y, HIP_REST_Y]),
   ]);
 }
@@ -162,8 +168,10 @@ function crouchClip(): THREE.AnimationClip {
     rotationTrack(BoneName.ShinR, t, [[-1.5, 0, 0], [-1.6, 0, 0], [-1.75, 0, 0], [-1.6, 0, 0], [-1.5, 0, 0]]),
     rotationTrack(BoneName.FootL, t, [[0.55, 0, 0], [0.5, 0, 0], [0.45, 0, 0], [0.5, 0, 0], [0.55, 0, 0]]),
     rotationTrack(BoneName.FootR, t, [[0.45, 0, 0], [0.5, 0, 0], [0.55, 0, 0], [0.5, 0, 0], [0.45, 0, 0]]),
-    rotationTrack(BoneName.Spine, t, [[0.34, 0, 0], [0.34, 0, 0], [0.34, 0, 0], [0.34, 0, 0], [0.34, 0, 0]]),
-    rotationTrack(BoneName.Head, t, [[-0.28, 0, 0], [-0.28, 0, 0], [-0.28, 0, 0], [-0.28, 0, 0], [-0.28, 0, 0]]),
+    // Negative folds the torso forward over the knees. The original positive
+    // value arched it backward, which is the inverted crouch pose.
+    rotationTrack(BoneName.Spine, t, [[-0.34, 0, 0], [-0.34, 0, 0], [-0.34, 0, 0], [-0.34, 0, 0], [-0.34, 0, 0]]),
+    rotationTrack(BoneName.Head, t, [[0.28, 0, 0], [0.28, 0, 0], [0.28, 0, 0], [0.28, 0, 0], [0.28, 0, 0]]),
     rotationTrack(BoneName.ArmL, t, [[0.42, 0, -0.2], [0.46, 0, -0.2], [0.42, 0, -0.2], [0.46, 0, -0.2], [0.42, 0, -0.2]]),
     rotationTrack(BoneName.ArmR, t, [[0.42, 0, 0.2], [0.46, 0, 0.2], [0.42, 0, 0.2], [0.46, 0, 0.2], [0.42, 0, 0.2]]),
     rotationTrack(BoneName.ForearmL, t, [[-0.95, 0, 0], [-0.9, 0, 0], [-0.95, 0, 0], [-0.9, 0, 0], [-0.95, 0, 0]]),

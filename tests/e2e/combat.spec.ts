@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   ConsoleWatcher,
   aimAt,
+  applyMouseDelta,
   engagePointerLock,
   expectEventually,
   findTarget,
@@ -383,6 +384,103 @@ test.describe("hitscan and damage", () => {
 
     // Aimed fire should land at least as much damage at 32 m.
     expect(aimedHealth).toBeLessThanOrEqual(hipHealth);
+  });
+});
+
+test.describe("aim orientation", () => {
+  /**
+   * Regression guard for an inverted vertical aim.
+   *
+   * Two opposite sign conventions live in the rig — limbs hang along −Y, the
+   * spine and head extend along +Y — and using the limb convention on the torso
+   * made the character look down when the camera looked up.
+   */
+  test("looking up aims the weapon and torso up, looking down aims them down", async ({ page }) => {
+    await readyAtRange(page);
+    await page.mouse.down({ button: "right" });
+    // Wait for the aim stance to engage, not a frame count: the hip stance holds
+    // the muzzle deliberately low, so asserting mid-blend measures the wrong pose.
+    await expectEventually(page, "aim stance engaged", (s) => s.aimAmount > 0.98);
+
+    // Camera pitch is negative looking up (the boom drops below the pivot).
+    await applyMouseDelta(page, 0, -450);
+    await frames(page, 6);
+    const up = await snapshot(page);
+    expect(up.cameraPitch).toBeLessThan(-0.4);
+    expect(up.weaponForward[1], "barrel should point up").toBeGreaterThan(0.2);
+    expect(up.poseAngles.torso, "torso should lean back").toBeGreaterThan(0.02);
+    expect(up.poseAngles.head, "head should look up").toBeGreaterThan(0.02);
+
+    await applyMouseDelta(page, 0, 900);
+    await frames(page, 6);
+    const down = await snapshot(page);
+    expect(down.cameraPitch).toBeGreaterThan(0.4);
+    expect(down.weaponForward[1], "barrel should point down").toBeLessThan(-0.2);
+    expect(down.poseAngles.torso, "torso should fold forward").toBeLessThan(-0.02);
+    expect(down.poseAngles.head, "head should look down").toBeLessThan(-0.02);
+
+    await page.mouse.up({ button: "right" });
+  });
+
+  test("the weapon tracks the aim pitch closely while aiming", async ({ page }) => {
+    await readyAtRange(page);
+    await page.mouse.down({ button: "right" });
+    await expectEventually(page, "aim stance engaged", (s) => s.aimAmount > 0.98);
+
+    for (const delta of [-300, 600]) {
+      await applyMouseDelta(page, 0, delta);
+      await frames(page, 25);
+      const state = await snapshot(page);
+      // barrel.y should equal −sin(aimPitch): the weapon follows the aim fully
+      // when shouldered, not a damped fraction of it.
+      const expected = -Math.sin(state.cameraPitch);
+      expect(Math.abs(state.weaponForward[1] - expected)).toBeLessThan(0.12);
+    }
+
+    await page.mouse.up({ button: "right" });
+  });
+
+  test("crouching folds the torso forward, not backward", async ({ page }) => {
+    await readyAtRange(page);
+    const standing = await snapshot(page);
+
+    await page.keyboard.down("Control");
+    const crouched = await expectEventually(page, "crouched", (s) => s.crouching, 200);
+    await frames(page, 40);
+    const settled = await snapshot(page);
+    await page.keyboard.up("Control");
+
+    expect(crouched.crouching).toBe(true);
+    // The spine is written by the crouch clip; negative is a forward fold.
+    expect(settled.poseAngles.spine, "crouched spine should fold forward").toBeLessThan(
+      standing.poseAngles.spine,
+    );
+    expect(settled.poseAngles.spine).toBeLessThan(0);
+  });
+
+  test("the weapon stays on the aim through a full 360° turn", async ({ page }) => {
+    await readyAtRange(page);
+    await page.mouse.down({ button: "right" });
+    await expectEventually(page, "aim stance engaged", (s) => s.aimAmount > 0.98);
+
+    let worstGrip = 0;
+    let worstAimError = 0;
+    for (let i = 0; i < 24; i++) {
+      await applyMouseDelta(page, 300, 0);
+      await frames(page, 3);
+      const s = await snapshot(page);
+      worstGrip = Math.max(worstGrip, s.handGripError.right, s.handGripError.left);
+
+      // The barrel's horizontal heading must match the aim yaw all the way round,
+      // including across the ±π seam.
+      const heading = Math.atan2(-s.weaponForward[0], -s.weaponForward[2]);
+      const error = Math.abs(Math.atan2(Math.sin(heading - s.cameraYaw), Math.cos(heading - s.cameraYaw)));
+      worstAimError = Math.max(worstAimError, error);
+    }
+    await page.mouse.up({ button: "right" });
+
+    expect(worstGrip, "hands must stay on the grips").toBeLessThan(0.15);
+    expect(worstAimError, "barrel must stay on the aim heading").toBeLessThan(0.3);
   });
 });
 

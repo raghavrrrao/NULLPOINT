@@ -104,6 +104,15 @@ export class Player {
     return this.pose?.gripError() ?? { right: -1, left: -1 };
   }
 
+  /** Torso, head and spine X rotations, radians. Development hook. */
+  poseAngles(): { torso: number; head: number; spine: number } {
+    return {
+      torso: this.pose?.torsoPitch ?? 0,
+      head: this.pose?.headPitch ?? 0,
+      spine: this.pose?.spinePitch ?? 0,
+    };
+  }
+
   /** Tells the pose where the weapon's hand grips are. */
   setWeaponGrips(grips: WeaponGrips | null): void {
     this.pose?.setGrips(grips);

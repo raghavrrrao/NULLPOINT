@@ -44,6 +44,12 @@ export interface GameSnapshot {
     killed: boolean;
   };
   hitMarkerCount: number;
+  /** Distance from each hand to its grip on the weapon, metres. */
+  handGripError: { right: number; left: number };
+  /** World direction the barrel points. */
+  weaponForward: [number, number, number];
+  /** Chest, head and spine X rotations, radians. Positive leans backward. */
+  poseAngles: { torso: number; head: number; spine: number };
   audioReady: boolean;
   audioPlays: number;
   targets: Array<{ id: string; health: number; maxHealth: number; alive: boolean }>;

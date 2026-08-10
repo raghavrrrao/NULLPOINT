@@ -101,19 +101,34 @@ test.describe("movement", () => {
     const forward = await snapshot(page);
     expect(Math.abs(forward.yaw)).toBeLessThan(0.25);
 
+    // Strafing turns the character into its run.
     await settle(page);
-    // Waited on rather than counted: turning is capped by `maxTurnSpeed`, so a
-    // 180° reversal takes a known minimum time and a fixed frame count is not a
-    // fixed amount of simulated time.
-    await page.keyboard.down("s");
-    const backward = await expectEventually(
+    await page.keyboard.down("d");
+    const strafing = await expectEventually(
       page,
-      "character turned to face backward",
-      (st) => Math.abs(Math.abs(st.yaw) - Math.PI) < 0.35,
+      "character turned into the strafe",
+      (st) => Math.abs(Math.abs(st.yaw) - Math.PI / 2) < 0.3,
       300,
     );
+    await page.keyboard.up("d");
+    expect(Math.abs(Math.abs(strafing.yaw) - Math.PI / 2)).toBeLessThan(0.3);
+  });
+
+  test("backing up walks backward instead of turning the character around", async ({ page }) => {
+    await startGame(page);
+    await settle(page);
+    const before = await snapshot(page);
+
+    // Deliberate third-person behaviour: holding S must retreat, not spin the
+    // character 180° and sprint it away from the camera.
+    await page.keyboard.down("s");
+    await frames(page, 90);
+    const during = await snapshot(page);
     await page.keyboard.up("s");
-    expect(Math.abs(Math.abs(backward.yaw) - Math.PI)).toBeLessThan(0.35);
+
+    expect(Math.abs(during.yaw - before.yaw), "the character must not turn around").toBeLessThan(0.25);
+    // Facing −Z, backing up increases z.
+    expect(during.position.z).toBeGreaterThan(before.position.z + 1);
   });
 
   test("sprint is faster than the default run", async ({ page }) => {

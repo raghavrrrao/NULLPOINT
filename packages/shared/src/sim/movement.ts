@@ -218,7 +218,12 @@ export function resolveFacing(
   config: PlayerConfig,
 ): void {
   if (hasInput) {
-    const target = intent.aim ? intent.cameraYaw : yawFromDirection(wishDir);
+    // Aiming holds the aim direction so a strafing player keeps the weapon on
+    // target. Otherwise the character runs where it is going — except when it is
+    // backing up, where turning to face the direction of travel would spin it
+    // 180° and turn a retreat into a sprint away from the camera.
+    const target =
+      intent.aim || isBackpedalling(intent) ? intent.cameraYaw : yawFromDirection(wishDir);
     const rate = intent.aim ? config.aimRotationDamp : config.rotationDamp;
     turnToward(state, target, rate, dt, config);
     return;
@@ -232,6 +237,16 @@ export function resolveFacing(
   // the deadzone, where every twitch of the camera would restart the turn.
   const target = intent.cameraYaw - Math.sign(offset) * limit * config.turnRecentre;
   turnToward(state, target, config.turnDamp, dt, config);
+}
+
+/**
+ * True when the input is predominantly backward.
+ *
+ * A pure strafe still turns the character into its run; only a retreat keeps the
+ * body facing the camera and walks backward.
+ */
+export function isBackpedalling(intent: MoveIntent): boolean {
+  return intent.forward < 0 && Math.abs(intent.forward) >= Math.abs(intent.right);
 }
 
 /**

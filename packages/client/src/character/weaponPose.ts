@@ -96,9 +96,19 @@ const SPRINT: Stance = {
 
 /** Widest the torso may twist away from the character's facing, radians. */
 const MAX_TORSO_TWIST = (55 * Math.PI) / 180;
-/** Torso pitch limits, radians. Positive leans forward/down. */
-const MAX_TORSO_PITCH = (40 * Math.PI) / 180;
-const MIN_TORSO_PITCH = (-35 * Math.PI) / 180;
+
+/**
+ * Torso pitch limits, radians.
+ *
+ * Sign convention, and the source of an inverted-aim bug worth spelling out:
+ * the spine, chest and head extend along **+Y** from their joints, so a
+ * positive X rotation tips them **backward**. Limbs hang along −Y, where the
+ * same positive rotation swings them *forward*. The two are opposite, and using
+ * the limb convention on the torso makes the character lean back when it should
+ * look down.
+ */
+const MAX_TORSO_LEAN_BACK = (35 * Math.PI) / 180;
+const MAX_TORSO_LEAN_FORWARD = (45 * Math.PI) / 180;
 
 const AIM_BLEND_RATE = 12;
 const SPRINT_BLEND_RATE = 9;
@@ -159,6 +169,20 @@ export class WeaponPose {
     return this.aimBlendValue;
   }
 
+  /** Chest and head X rotations, radians. Development hook. */
+  get torsoPitch(): number {
+    return this.rig.bones[BoneName.Chest].rotation.x;
+  }
+
+  get headPitch(): number {
+    return this.rig.bones[BoneName.Head].rotation.x;
+  }
+
+  /** Spine X rotation written by the locomotion clips, radians. Development hook. */
+  get spinePitch(): number {
+    return this.rig.bones[BoneName.Spine].rotation.x;
+  }
+
   /**
    * How far each hand ended up from its grip, metres.
    *
@@ -190,8 +214,12 @@ export class WeaponPose {
     this.sprintBlend = damp(this.sprintBlend, wantSprint ? 1 : 0, SPRINT_BLEND_RATE, dt);
 
     this.blendStance();
-    this.placeWeapon(input);
+    // Torso first. `placeWeapon` writes the weapon's orientation in world space
+    // by dividing out its parent's rotation, so the chest must already hold this
+    // frame's value — otherwise the weapon is compensated against a stale chest
+    // and keeps whatever pitch the torso added since.
     this.poseTorso(input);
+    this.placeWeapon(input);
     this.solveArms();
   }
 
@@ -254,17 +282,20 @@ export class WeaponPose {
   private poseTorso(input: PoseInput): void {
     const yawOffset = wrapAngle(input.aimYaw - input.bodyYaw);
     const twist = clamp(yawOffset * this.torsoFollow, -MAX_TORSO_TWIST, MAX_TORSO_TWIST);
+    // `aimPitch` is positive looking down, and a positive X rotation leans the
+    // torso back, so the aim contribution is negated: looking down folds the
+    // character forward. Recoil throws the shoulders back, so it adds.
     const pitch = clamp(
-      input.aimPitch * this.torsoFollow * 0.5 - input.recoilPitch * 0.6,
-      MIN_TORSO_PITCH,
-      MAX_TORSO_PITCH,
+      -input.aimPitch * this.torsoFollow * 0.5 + input.recoilPitch * 0.6,
+      -MAX_TORSO_LEAN_FORWARD,
+      MAX_TORSO_LEAN_BACK,
     );
 
     this.rig.bones[BoneName.Chest].rotation.set(pitch, twist, 0);
     // The head keeps looking along the aim even when the torso has run out of
     // twist, which is what sells "the character is watching that".
     this.rig.bones[BoneName.Head].rotation.set(
-      clamp(input.aimPitch * 0.35, -0.5, 0.5),
+      clamp(-input.aimPitch * 0.35, -0.5, 0.5),
       clamp(yawOffset - twist, -0.7, 0.7),
       0,
     );
