@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Generated runtime assets — built by tools/asset-pipeline, never committed
+assets/build/
+
+# Secrets — Firebase Admin credentials and environment files
+.env
+.env.*
+!.env.example
+*serviceAccount*.json
+*service-account*.json
+*firebase-adminsdk*.json
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Local scratch
+tmp/
+*.local
