@@ -1,7 +1,7 @@
 # PROJECT_STATUS.md — NULLPOINT
 
 **Last updated:** 2026-08-10
-**Current phase:** Natural TPP Locomotion + Combat Sandbox ✅ **complete**
+**Current phase:** Map 01 — Playable Combat Map ✅ **complete**
 **Next phase:** ⛔ **none started — awaiting explicit go-ahead.** See the
 numbering note below: the developer used "Phase 3" for character integration,
 which collides with the roadmap's Phase 3 (Server Core & Transport). That phase
@@ -38,6 +38,8 @@ is untouched and still not started.
 | 2 | First Playable Combat (single-player) | ✅ Complete |
 | — | Real Character Integration *(out of roadmap order — see note above)* | ✅ Complete |
 | — | Natural TPP Locomotion + Combat Sandbox *(out of roadmap order)* | ✅ Complete |
+| — | Camera & Mouse-Look Stabilisation *(out of roadmap order)* | ✅ Complete |
+| — | Map 01 — Playable Combat Map *(out of roadmap order)* | ✅ Complete |
 | 3 | Server Core & Transport | ⛔ Not started |
 | 4 | Networked Movement — **first playable multiplayer** | ⛔ Not started |
 | 5 | Combat | ⛔ Not started |
@@ -739,6 +741,215 @@ Unit total 110, up from 98.
 
 ---
 
+## Camera & Mouse-Look Stabilisation ✅
+
+**Directed by the developer on 2026-08-11 as "Phase 3.5".** Out of roadmap order,
+like the two before it. Nothing networked; no map work.
+
+**Goal:** lock down third-person mouse-look before the environment and
+multiplayer phases build on it. Specifically: unlimited, continuous horizontal
+rotation with no snap at any angle.
+
+### What was actually found
+
+**No rendered camera discontinuity could be reproduced.** Driving the real
+pointer-lock path — synthetic `mousemove` events carrying `movementX`, which is
+exactly what a locked page receives — and unwrapping the camera heading frame by
+frame gave, *before any change was made*:
+
+| Sweep | Total swept | Worst single-frame deviation |
+| ----- | ----------- | ---------------------------- |
+| 400 events × 12 px | −603.5° | **0.000°** |
+
+The barrel heading tracked it identically, also 0.000°. So the ±π seam, the
+`atan2` conversion, degree/radian mixing and shortest-angle interpolation are all
+ruled out as causes of a visible cut.
+
+**What the old code did do:** `applyMouseDelta` wrapped yaw into [−π, π] on every
+frame. That was invisible in the rendered image, because every consumer used it
+through `sin`/`cos`, through `wrapAngle`-based deltas, or as a Three.js Euler —
+all of which treat 7π and π identically. It was **not** invisible in the *value*:
+the exposed `cameraYaw` jumped by 2π at the seam, which makes any raw difference
+of two samples wrong, and would produce a real snap the moment anything damped or
+interpolated that value.
+
+So the wrap was a latent hazard rather than the reported symptom, and it has been
+removed regardless, per the brief's explicit preference for an accumulated
+representation.
+
+**Two things that can be perceived as a cut and are not the camera:**
+
+1. **The character's deadzone turn.** The legs hold still until the aim exceeds
+   48° (aiming) or 85° (hip), then swing round at `maxTurnSpeed`. During a fast
+   continuous rotation that reads as the body snapping. It is the intended model
+   (§6 of the brief says to preserve it) and it is the body, not the view —
+   measured at up to 4.8° in a frame while the camera's own step stayed at a
+   constant 1.513°.
+2. **Losing pointer lock.** Esc or a focus change drops the lock; held keys and
+   the pending mouse delta are cleared and the overlay returns. The camera stops
+   responding until the player clicks again, which looks like the view cutting
+   out.
+
+### Changed
+
+`ThirdPersonCamera` now keeps horizontal yaw **unbounded**: it accumulates for as
+long as the player keeps turning and is never wrapped, clamped or reset. The
+rendered orientation, the boom direction and the shoulder offset all use that raw
+value; `viewYaw` still returns the wrapped angle for gameplay consumers that want
+a canonical one. Vertical pitch is unchanged — clamped, never wrapped.
+
+Nothing else was touched: no change to the collision system, the shoulder
+framing, the character rotation model, the weapon pose or the physics tick.
+
+### Verified
+
+Real Chrome, real Pointer Lock engaged on the canvas, real GPU:
+
+| Case | Swept | Raw yaw span | Step | Worst deviation |
+| ---- | ----- | ------------ | ---- | --------------- |
+| 1 turn clockwise | −398.3° | −398.3° | −5.042° | **0.0000°** |
+| 2 turns clockwise | −801.7° | −801.7° | −5.042° | **0.0000°** |
+| 3 turns clockwise | −1205.0° | −1205.0° | −5.042° | **0.0000°** |
+| 3 turns anticlockwise | +1205.0° | +1205.0° | +5.042° | **0.0000°** |
+| Slow, 4 px/event | −60.0° | −60.0° | −0.504° | **0.0000°** |
+| Fast, 120 px/event | −892.4° | −892.4° | −15.126° | **0.0000°** |
+
+Swept total equals the raw yaw span in every row, which is the direct evidence
+that the accumulator never wraps. The per-event step is identical at every
+accumulated angle, so sensitivity does not drift. Repeated while walking,
+sprinting, crouching, airborne, and aiming while firing — all 0.0000°.
+
+After roughly eleven cumulative turns the camera sat at −3942.9°, still locked,
+hand-to-grip error 0.0040 m / 0.0057 m, no console errors, 52–60 FPS.
+
+### Tests
+
+`tests/e2e/camera-look.spec.ts` — 17 tests: relative-movement-not-cursor-position,
+turn direction, 360/720/1080 clockwise, 1080 anticlockwise, constant sensitivity
+across turns, ±π crossing in both directions, rapid reversal, rotation while
+walking/sprinting/crouching/airborne, pitch clamp, pitch sign after three turns,
+weapon aim across 1080°, grip stability per stance, deadzone independence,
+backpedal, strafe.
+
+### Known limitations
+
+- The yaw accumulator is a float64 and grows without bound. At a sustained fast
+  spin it would take on the order of a decade of continuous play to reach a
+  magnitude where its resolution matters, so this is noted rather than fixed —
+  a fix would reintroduce the wrap this phase removed.
+- Automated verification drives `movementX` directly. Chrome's own delivery of
+  pointer-lock deltas, including any OS pointer acceleration, is browser-side and
+  outside what these tests can exercise.
+- The character's deadzone snap during fast rotation is unchanged, by
+  instruction. If it turns out to be the thing that reads as a "cut", it is a
+  tuning question for `aimYawLimit` / `hipYawLimit` / `maxTurnSpeed`, not a
+  camera one.
+
+---
+
+## Map 01 — Playable Combat Map ✅
+
+**Directed by the developer on 2026-08-11 as "Phase 4".** Out of roadmap order.
+Nothing networked.
+
+### The one architectural decision
+
+Map 01 is **additive**, not a replacement. The Phase 1 grey-box arena and the
+Phase 2 range are kept as a second map, `TRAINING`, because their stairs, ramp,
+crouch gate, corridor and inside corner exist to exercise movement and camera and
+roughly sixty regression tests assert against those exact coordinates. Replacing
+them would have deleted that coverage to make room for scenery.
+
+So there is now a **map registry**. `MAP01` is the game's default — a player
+opening the game gets the designed arena. `?map=<id>` selects a map, and the
+regression suites ask for `TRAINING` through one line in the test helper, leaving
+every existing assertion untouched.
+
+### Map 01 — "Substation"
+
+48 × 40 m of playable floor, boundary walls 6 m. Compact on purpose: a larger
+map reads as empty with one bot in it.
+
+| Zone | Extent | Role |
+| ---- | ------ | ---- |
+| Entry / spawn band | z 10…18 | Four spawns, each behind cover |
+| Central arena | x −16…16, z −8…8 | Three cover tiers, the main fight |
+| Elevated deck | x −16…16, z −19…−9, y 3 | High ground, long sightline, railings with a firing gap |
+| West route | x −24…−16.5 | Flank, medium and low cover |
+| East route | x 16.5…24 | Flank, mirrored |
+
+**Cover tiers**, sized against the character rather than by eye: low 1.0 m (below
+the 1.15 m crouch height — crouch behind it, shoot over it standing), medium
+2.0 m (breaks standing line of sight), full 3.2 m (blocks entirely).
+
+**Elevation**: stairs east at x 13 (rise 0.30 m, tread 0.90 m) and a ramp west at
+x −13 (3 m over 8 m, 20.6°). Both are inside the movement system's limits by
+construction — rise under `stepHeight` 0.45, tread over the 0.68 m capsule
+diameter, slope under the 50° limit.
+
+**Sightlines**: the centre lane (x ∈ [−2, 2]) is left open from the deck to the
+entry band — ~25 m, the map's one long shot. Two full-height pillars flank it, so
+the long shot exists but is contested, and the side routes offer a longer safe
+path. Crossing the middle is a choice.
+
+**Spawns**: four, none facing another, each behind cover. How a real match picks
+one is **OPEN** — it belongs with the game mode (`PROJECT.md` Q2/Q8). The local
+player currently always takes the first, which is a development convenience.
+
+**Targets**: seven, covering short, medium, long (down the lane), elevated,
+behind-cover, flank and one moving.
+
+**Collision**: `ArenaBox` always gets a collider, `DecorBox` never does. Beams,
+light fittings, floor markings and pipework are decoration and are typed as such,
+so no piece of scenery can be mistaken for cover or silently become an obstacle.
+
+### Bugs found by building the map
+
+- **Neither climb worked.** The route walls sat at x = ±12.5, straight across the
+  foot of the stairs and the ramp — the capsule jammed against a wall and never
+  reached the first tread. Moved outboard to ±16.5.
+- **The stairs climbed to nowhere.** The deck was 18 m wide against climbs at
+  x = ±13, so both topped out beside it. The deck is 32 m wide now, and both
+  climbs land on it.
+
+Both were found by walking the map under automation rather than by looking at
+screenshots, which is the only reason they were found at all.
+
+### Verified
+
+- Stairs and ramp both reach the 3.02 m deck, walking and sprinting.
+- All four spawns stand on open floor; the boundary holds.
+- Camera holds 3.5 m in the open, compresses at cover, recovers, and never
+  leaves the boundary or goes underground on the deck.
+- Bot detects, engages and damages the player, and can be shot back.
+- Targets damageable at short and long range; player death and respawn work.
+- 55–60 FPS in real Chrome, 66–141 draw calls, ~30k triangles.
+- No console errors anywhere.
+
+### Tests
+
+`tests/e2e/map01.spec.ts` — 15 tests: default map, clean load, spawn validity,
+all four spawns, targets and bot present, stairs walk + sprint, ramp, traversal
+with jump and crouch, boundary, camera in the open / at cover / at the boundary /
+on the stairs, target engagement at two ranges, bot engagement both ways,
+death and respawn, and a frame-rate/draw-call floor.
+
+### Known limitations
+
+- **The bot cannot climb.** It walks straight at the player, so it will not
+  follow onto the deck and will press against cover between it and its target.
+  Deliberate: this phase is told not to build navigation. It is placed in the
+  open centre, which reaches the entry band and both route mouths.
+- **One bot, one spawn.** Enough to exercise combat, not a populated map.
+- Visual language is coherent grey-industrial with emissive fittings and floor
+  markings, but it is still primitives — no meshes, no textures, no art pass.
+- The map has no gameplay objective. Match size, mode and win condition remain
+  **OPEN** (`PROJECT.md` Q1–Q3).
+- `TRAINING` and `MAP01` share one world; there is no level streaming or
+  unloading, because with two small maps there is nothing to stream.
+
+---
+
 ## Phase 3 — Server Core & Transport ⛔
 
 **Goal:** A server that accepts connections, validates ruthlessly, and ticks.
@@ -1009,3 +1220,4 @@ Architectural decisions that shaped the plan. Detailed records go in `docs/adr/`
 | 2026-08-10 | Feet grounded by measurement, not by retuning clips per character | Joint angles do not know how long a character's legs are, and the alternative is redoing every clip for every future asset. |
 | 2026-08-10 | Bot decisions in `shared/sim`, bot body in the client | Keeps the state machine unit-testable without a browser, and puts it where a server-side bot would run unchanged. |
 | 2026-08-10 | Bot reuses the player's movement and damage code rather than its own | One set of combat rules; a bot with its own movement would drift out of agreement with the player's. |
+| 2026-08-11 | Camera yaw accumulates unbounded; only gameplay consumers see a wrapped angle | Normalising is invisible in a still frame but puts a 2π step in the value, which any future interpolation of it would turn into a snap. |

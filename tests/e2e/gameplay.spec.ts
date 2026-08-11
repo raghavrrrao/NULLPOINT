@@ -1,3 +1,5 @@
+import { CAMERA_CONFIG } from "../../packages/shared/src/constants/camera.ts";
+
 import { expect, test } from "@playwright/test";
 
 import {
@@ -405,12 +407,14 @@ test.describe("camera", () => {
     const state = await snapshot(page);
 
     const [cx, cy, cz] = state.cameraPosition;
-    const pivotY = state.position.y + 1.62;
+    const pivotY = state.position.y + CAMERA_CONFIG.pivotHeight;
     const distance = Math.hypot(cx - state.position.x, cy - pivotY, cz - state.position.z);
 
-    // Open ground: the boom should be at or near its full 5 m length.
-    expect(distance).toBeGreaterThan(3.5);
-    expect(distance).toBeLessThan(6.0);
+    // Open ground: the boom should be at or near its full nominal length. Taken
+    // from the config rather than restated, so tuning the framing does not mean
+    // editing a number in two places and getting one of them wrong.
+    expect(distance).toBeGreaterThan(CAMERA_CONFIG.distance * 0.85);
+    expect(distance).toBeLessThan(CAMERA_CONFIG.distance * 1.2);
   });
 
   test("does not pull in when the player jumps on open ground", async ({ page }) => {
@@ -418,7 +422,7 @@ test.describe("camera", () => {
     await frames(page, 30);
 
     const standing = await snapshot(page);
-    expect(standing.cameraBoom).toBeGreaterThan(4.9);
+    expect(standing.cameraBoom).toBeGreaterThan(CAMERA_CONFIG.distance * 0.98);
 
     // Regression: the camera sweep used to include the player's own capsule.
     // Rising made the lagging pivot sit at torso height, where the capsule is at
@@ -431,7 +435,7 @@ test.describe("camera", () => {
     expect(samples.some((s) => !s.grounded), "expected the character to leave the ground").toBe(true);
 
     const minBoom = Math.min(...samples.map((s) => s.cameraBoom));
-    expect(minBoom).toBeGreaterThan(4.5);
+    expect(minBoom).toBeGreaterThan(CAMERA_CONFIG.distance * 0.9);
     expect(Math.max(...samples.map((s) => s.cameraLift))).toBeLessThan(0.01);
   });
 
@@ -445,7 +449,7 @@ test.describe("camera", () => {
     await page.keyboard.up("Shift");
     await page.keyboard.up("w");
 
-    expect(Math.min(...samples.map((s) => s.cameraBoom))).toBeGreaterThan(4.5);
+    expect(Math.min(...samples.map((s) => s.cameraBoom))).toBeGreaterThan(CAMERA_CONFIG.distance * 0.9);
   });
 
   test("never places the camera beyond an obstruction, even when cornered", async ({ page }) => {

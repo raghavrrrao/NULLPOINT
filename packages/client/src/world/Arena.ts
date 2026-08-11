@@ -4,17 +4,19 @@ import { createLogger } from "@nullpoint/shared";
 
 import type { PhysicsWorld } from "../physics/PhysicsWorld.ts";
 import type { DamageableRegistry } from "../combat/DamageableRegistry.ts";
-import { ARENA_BOXES, SURFACE_COLOURS, type ArenaBox } from "./arenaLayout.ts";
+import { SURFACE_COLOURS, type ArenaBox } from "./arenaLayout.ts";
 import { TrainingTarget } from "./TrainingTarget.ts";
-import { RANGE_BOXES, TRAINING_TARGETS } from "./trainingRange.ts";
+import type { DecorBox, MapDefinition } from "../map/types.ts";
 
 const log = createLogger("arena");
 
 /**
- * Builds the arena's render meshes and physics colliders from one description.
+ * Builds a map's render meshes and physics colliders from its description.
  *
- * Both come out of the same loop over `ARENA_BOXES`, so a piece of geometry
- * cannot end up visible-but-not-solid.
+ * Gameplay geometry comes out of one loop, so a piece of it cannot end up
+ * visible-but-not-solid. Decoration comes out of a separate loop that never
+ * touches the physics world, so it cannot accidentally become collision either
+ * (`map/types.ts`).
  */
 export class Arena {
   readonly group = new THREE.Group();
@@ -22,17 +24,24 @@ export class Arena {
   private readonly materials = new Map<number, THREE.MeshStandardMaterial>();
   private readonly geometry = new Map<string, THREE.BoxGeometry>();
 
-  constructor(physics: PhysicsWorld, damageables: DamageableRegistry) {
-    this.group.name = "arena";
+  readonly map: MapDefinition;
 
-    const boxes = [...ARENA_BOXES, ...RANGE_BOXES];
+  constructor(physics: PhysicsWorld, damageables: DamageableRegistry, map: MapDefinition) {
+    this.group.name = `map-${map.id}`;
+    this.map = map;
+
+    const boxes = map.geometry;
     for (const box of boxes) {
       this.group.add(this.createMesh(box));
       this.createCollider(physics, box);
     }
 
+    for (const box of map.decor) {
+      this.group.add(this.createDecorMesh(box));
+    }
+
     const targets: TrainingTarget[] = [];
-    for (const options of TRAINING_TARGETS) {
+    for (const options of map.targets) {
       const target = new TrainingTarget(physics, options);
       // Registered by collider handle so hitscan can resolve a raycast result
       // back to the thing it hit without the physics layer knowing about targets.
@@ -42,8 +51,10 @@ export class Arena {
     }
     this.targets = targets;
 
-    this.group.add(this.createGridOverlay());
-    log.info(`built ${boxes.length} boxes and ${targets.length} targets with matching colliders`);
+    log.info(
+      `map ${map.id}: ${boxes.length} solid boxes, ${map.decor.length} decorative, ` +
+        `${targets.length} targets, ${map.spawns.length} spawns`,
+    );
   }
 
   /** @param dt Real frame delta, seconds. */
@@ -77,6 +88,39 @@ export class Arena {
     return geometry;
   }
 
+  /**
+   * Builds a visual-only mesh.
+   *
+   * Never given a collider, and never shadow-casting onto gameplay space in a
+   * way that could be mistaken for cover: decoration must not change how the map
+   * reads as a place to fight.
+   */
+  private createDecorMesh(box: DecorBox): THREE.Mesh {
+    const material = this.decorMaterialFor(box.colour, box.glow ?? 0);
+    const mesh = new THREE.Mesh(this.geometryFor(box.size), material);
+    mesh.name = box.name;
+    mesh.position.set(box.position[0], box.position[1], box.position[2]);
+    if (box.rotation !== undefined) mesh.rotation.set(box.rotation[0], box.rotation[1], 0);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    return mesh;
+  }
+
+  private decorMaterialFor(colour: number, glow: number): THREE.MeshStandardMaterial {
+    const key = colour * 8 + Math.round(glow * 4);
+    let material = this.materials.get(key);
+    if (material === undefined) {
+      material = new THREE.MeshStandardMaterial({
+        color: colour,
+        roughness: 0.85,
+        metalness: 0.05,
+        emissive: new THREE.Color(colour).multiplyScalar(glow),
+      });
+      this.materials.set(key, material);
+    }
+    return material;
+  }
+
   private createMesh(box: ArenaBox): THREE.Mesh {
     const mesh = new THREE.Mesh(
       this.geometryFor(box.size),
@@ -105,15 +149,6 @@ export class Arena {
     );
   }
 
-  /** A faint floor grid. Distance and speed are very hard to read on flat grey. */
-  private createGridOverlay(): THREE.GridHelper {
-    const grid = new THREE.GridHelper(60, 60, 0x5c6874, 0x454e57);
-    grid.position.y = 0.01;
-    const material = grid.material as THREE.Material;
-    material.transparent = true;
-    material.opacity = 0.25;
-    return grid;
-  }
 
   dispose(): void {
     for (const target of this.targets) target.dispose();

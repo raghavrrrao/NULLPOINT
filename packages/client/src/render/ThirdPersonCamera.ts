@@ -106,7 +106,21 @@ export class ThirdPersonCamera {
    * weapon is climbing.
    */
   get viewYaw(): number {
-    return wrapAngle(this.yawAngle + this.recoilYaw);
+    return wrapAngle(this.viewYawUnbounded);
+  }
+
+  /**
+   * The same view yaw, **not** normalised.
+   *
+   * Rendering uses this and gameplay uses the wrapped {@link viewYaw}. An Euler
+   * angle of 7π and one of π describe the same orientation, so normalising is
+   * invisible in a still frame — but it puts a ±2π step in the *value*, and any
+   * consumer that ever interpolates or damps that value would sweep the long way
+   * round and produce exactly the snap this camera must never have. Keeping the
+   * rendered angle unbounded means no such seam can be introduced by accident.
+   */
+  private get viewYawUnbounded(): number {
+    return this.yawAngle + this.recoilYaw;
   }
 
   /** Pitch actually used for the view this frame, including recoil. */
@@ -116,7 +130,7 @@ export class ThirdPersonCamera {
 
   /** Points the boom from the pivot toward the camera at `pitch`. */
   private setDirection(pitch: number): void {
-    const yaw = this.viewYaw;
+    const yaw = this.viewYawUnbounded;
     const cosPitch = Math.cos(pitch);
     this.offsetDirection.set(
       Math.sin(yaw) * cosPitch,
@@ -125,6 +139,14 @@ export class ThirdPersonCamera {
     );
   }
 
+  /**
+   * Accumulated horizontal look, radians. **Unbounded and never reset.**
+   *
+   * Turning right past a full circle continues to 2π, 4π and beyond rather than
+   * wrapping to −π, so the value is monotonic while the player keeps turning the
+   * same way. That is what makes "rotate 1080° and check nothing snapped" a
+   * question this code can answer.
+   */
   get yaw(): number {
     return this.yawAngle;
   }
@@ -143,7 +165,9 @@ export class ThirdPersonCamera {
    * means pitch *decreases* with a negative `deltaY`.
    */
   applyMouseDelta(deltaX: number, deltaY: number): void {
-    this.yawAngle = wrapAngle(this.yawAngle - deltaX * config.sensitivity);
+    // Deliberately not wrapped. Horizontal look is unlimited: it accumulates for
+    // as long as the player keeps moving the mouse, in either direction.
+    this.yawAngle -= deltaX * config.sensitivity;
     this.pitchAngle = clamp(
       this.pitchAngle + deltaY * config.sensitivity,
       config.minPitch,
@@ -189,7 +213,7 @@ export class ThirdPersonCamera {
     }
 
     // Over-the-shoulder lateral shift, perpendicular to the boom on the XZ plane.
-    const viewYaw = this.viewYaw;
+    const viewYaw = this.viewYawUnbounded;
     const rightX = Math.cos(viewYaw);
     const rightZ = -Math.sin(viewYaw);
     const shoulderX = rightX * shoulderOffset;
@@ -254,7 +278,7 @@ export class ThirdPersonCamera {
     // The collision lift is folded in so that when the boom climbs over the
     // character while cornered, the view tilts down to keep them in frame.
     this.camera.rotation.order = "YXZ";
-    this.camera.rotation.set(-(this.viewPitch + this.collisionLift), this.viewYaw, 0);
+    this.camera.rotation.set(-(this.viewPitch + this.collisionLift), this.viewYawUnbounded, 0);
   }
 
   /**

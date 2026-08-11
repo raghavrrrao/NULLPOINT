@@ -56,6 +56,15 @@ export interface GameSnapshot {
   footHeight: { right: number; left: number };
   audioReady: boolean;
   audioPlays: number;
+
+  // --- Map (Phase 4) ---
+  mapId: string;
+  mapName: string;
+  mapBounds: { x: [number, number]; z: [number, number] };
+  spawnId: string;
+  spawnCount: number;
+  spawns: Array<{ id: string; position: { x: number; y: number; z: number }; yaw: number }>;
+  nearestSpawn: string;
   targets: Array<{
     id: string;
     health: number;
@@ -121,8 +130,18 @@ export class ConsoleWatcher {
 }
 
 /** Loads the game and waits until the frame loop is running. */
-export async function startGame(page: Page): Promise<void> {
-  await page.goto("/");
+/**
+ * Loads the game and waits until it is running.
+ *
+ * Defaults to the **training arena**, not the game's default map. The Phase 1
+ * grey-box and the Phase 2 range exist to exercise movement, camera and combat,
+ * and the suites written against them assert on their exact coordinates. Map 01
+ * is a designed combat space and deliberately has different geometry, so tests
+ * that mean "the crouch gate" or "the inside corner" must keep asking for the
+ * map that has them. Map 01's own suite passes `MAP01`.
+ */
+export async function startGame(page: Page, map = "TRAINING"): Promise<void> {
+  await page.goto(`/?map=${encodeURIComponent(map)}`);
   await page.waitForFunction(
     () => (window as unknown as { __NULLPOINT__?: { ready?: boolean } }).__NULLPOINT__?.ready === true,
     undefined,

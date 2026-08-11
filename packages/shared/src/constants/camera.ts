@@ -82,8 +82,26 @@ export const CAMERA_CONFIG: CameraConfig = {
   near: 0.1,
   far: 400,
 
-  distance: 5.0,
+  // Normal third-person boom, metres. Tuned for a 1.8 m character: at 5.0 m the
+  // body read as a small figure in a wide establishing shot rather than the
+  // subject of the frame. 3.5 m is the modern close-TPP framing — the character
+  // and weapon are clearly legible while the surroundings stay readable enough
+  // to fight in.
+  distance: 3.5,
   minDistance: 0.5,
+  // Deliberately **not** raised alongside `distance`.
+  //
+  // This is the threshold below which the boom counts as uncomfortably close and
+  // the anti-corner lift starts, and the lift ramps over
+  // `comfortableDistance → minDistance`. It is an absolute judgement about how
+  // near the camera has come to the player, not a fraction of the nominal boom,
+  // so it does not scale with `distance`.
+  //
+  // `update()` also caps it at the boom actually wanted. Setting it equal to (or
+  // above) `distance` would make that cap bite immediately, so *any* compression
+  // at all would produce a non-zero shortfall and start tilting the view — the
+  // same defect that once fired the lift on every aim and threw shots off the
+  // crosshair.
   comfortableDistance: 2.4,
   // ~72°. Against a tall wall the boom available at pitch p is roughly
   // (gap / cos p), so the angle has to be steep to buy back real distance:

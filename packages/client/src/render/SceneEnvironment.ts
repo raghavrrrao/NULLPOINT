@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import type { MapLighting } from "../map/types.ts";
+
 /**
  * Scene background, fog and lighting.
  *
@@ -18,21 +20,40 @@ export interface SceneEnvironment {
 const SHADOW_EXTENT = 26;
 const LIGHT_OFFSET = new THREE.Vector3(-18, 26, 12);
 
-export function createSceneEnvironment(): SceneEnvironment {
+/**
+ * Builds the scene, its fog and its three lights from a map's lighting.
+ *
+ * Taken from the map rather than fixed, so a map can set its own mood — but
+ * the *structure* is fixed at key + hemisphere + ambient with no
+ * post-processing, because a player silhouette staying readable against cover
+ * matters more than atmosphere.
+ */
+export function createSceneEnvironment(lighting: MapLighting): SceneEnvironment {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x11151b);
-  scene.fog = new THREE.Fog(0x11151b, 60, 190);
+  scene.background = new THREE.Color(lighting.fogColour);
+  // Exponential rather than linear: linear fog needs near/far tuned per map
+  // size, and a density reads the same in a 48 m arena and a 60 m one.
+  scene.fog = new THREE.FogExp2(lighting.fogColour, lighting.fogDensity);
 
   // Generous fill relative to the key light. With a single directional source
   // the corridor and the area under the crouch gate read as black, and a
   // grey-box has to stay legible in exactly those places.
-  const hemisphere = new THREE.HemisphereLight(0xa8bed4, 0x3c434c, 1.9);
+  const hemisphere = new THREE.HemisphereLight(
+    lighting.skyColour,
+    lighting.groundColour,
+    lighting.hemisphereIntensity * 2.5,
+  );
   scene.add(hemisphere);
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.42);
+  const ambient = new THREE.AmbientLight(0xffffff, lighting.ambientIntensity);
   scene.add(ambient);
 
-  const keyLight = new THREE.DirectionalLight(0xfff2e0, 2.1);
+  const keyLight = new THREE.DirectionalLight(lighting.keyColour, lighting.keyIntensity);
+  // The map gives a direction; the offset is that direction pushed back out
+  // to the shadow camera's working distance.
+  LIGHT_OFFSET.set(-lighting.keyDirection[0], -lighting.keyDirection[1], -lighting.keyDirection[2])
+    .normalize()
+    .multiplyScalar(34);
   keyLight.position.copy(LIGHT_OFFSET);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(2048, 2048);

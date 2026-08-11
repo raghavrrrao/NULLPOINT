@@ -6,13 +6,25 @@ developer, built for entertainment.
 > **Status: playable single-player combat prototype.** Phases 1 and 2 are
 > complete — a third-person character with movement, camera, physics and
 > animation, plus an assault rifle with aiming, hitscan, damage, reloading and
-> training targets, plus a combat sandbox: moving targets, a training bot that
+> training targets, on a designed combat map (**Map 01 “Substation”**), plus a
+> combat sandbox: moving targets, a training bot that
 > chases and shoots back, and player health with death and respawn. The real
 > rigged humanoid has full generated locomotion — idle, walk, run, sprint,
 > crouch, jump, fall and landing. No multiplayer and no Firebase yet.
 > See [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 ---
+
+## Maps
+
+`MAP01` — *Substation*, the default. A 48 × 40 m industrial arena: a central
+space with low, medium and full-height cover, two flanking routes, an elevated
+deck reached by stairs on the east and a ramp on the west, and one long
+sightline (~25 m) down the open centre lane. Four spawn points.
+
+`TRAINING` — the Phase 1 grey-box test bed and the Phase 2 firing range, kept
+because the regression suites are written against its exact geometry. Load it
+with `?map=TRAINING`.
 
 ## Documents
 

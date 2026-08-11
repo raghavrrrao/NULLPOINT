@@ -27,8 +27,8 @@ import { createSceneEnvironment, type SceneEnvironment } from "../render/SceneEn
 import { ThirdPersonCamera } from "../render/ThirdPersonCamera.ts";
 import { DebugHud } from "../ui/DebugHud.ts";
 import { Arena } from "../world/Arena.ts";
-import { SPAWN_POSITION } from "../world/arenaLayout.ts";
-import { BOT_SPAWNS } from "../world/trainingRange.ts";
+import { resolveMap } from "../map/index.ts";
+import type { MapDefinition, SpawnPoint } from "../map/types.ts";
 import { GameLoop } from "./GameLoop.ts";
 
 const log = createLogger("game");
@@ -76,34 +76,42 @@ export class Game {
   private readonly mouseDelta = { x: 0, y: 0 };
   private physicsMs = 0;
   private readonly characterSource: string;
+  private readonly map: MapDefinition;
+  private readonly spawn: SpawnPoint;
 
-  private constructor(elements: GameElements, physics: PhysicsWorld, asset: CharacterAsset) {
+  private constructor(
+    elements: GameElements,
+    physics: PhysicsWorld,
+    asset: CharacterAsset,
+    map: MapDefinition,
+  ) {
     this.elements = elements;
     this.physics = physics;
     this.characterSource = asset.source === "placeholder" ? "PLACEHOLDER (procedural)" : "GLB";
+    this.map = map;
+
+    // A map always has at least one spawn; the first is the local player's.
+    // Which spawn a player gets in a real match is a game-mode decision and is
+    // still OPEN (`PROJECT.md` Q2/Q8).
+    const spawn = map.spawns[0];
+    if (spawn === undefined) throw new Error(`map ${map.id} has no spawn points`);
+    this.spawn = spawn;
 
     this.renderer = new Renderer(elements.container);
-    this.environment = createSceneEnvironment();
-    this.arena = new Arena(physics, this.damageables);
+    this.environment = createSceneEnvironment(map.lighting);
+    this.arena = new Arena(physics, this.damageables, map);
     this.environment.scene.add(this.arena.group);
 
-    this.player = new Player(
-      physics,
-      asset,
-      vec3(SPAWN_POSITION[0], SPAWN_POSITION[1], SPAWN_POSITION[2]),
-    );
+    this.player = new Player(physics, asset, vec3(spawn.position.x, spawn.position.y, spawn.position.z));
+    this.player.state.yaw = spawn.yaw;
     this.environment.scene.add(this.player.object);
 
     this.camera = new ThirdPersonCamera(this.renderer.camera, physics);
     // Without this the camera collides with the character it is following: the
     // boom sweep starts at the pivot, which sits inside the player's capsule.
     this.camera.ignoreCollider(this.player.characterCollider);
-    this.camera.snapTo(
-      SPAWN_POSITION[0],
-      SPAWN_POSITION[1],
-      SPAWN_POSITION[2],
-      CAMERA_CONFIG.pivotHeight,
-    );
+    this.camera.applyMouseDelta(-spawn.yaw / CAMERA_CONFIG.sensitivity, 0);
+    this.camera.snapTo(spawn.position.x, spawn.position.y, spawn.position.z, CAMERA_CONFIG.pivotHeight);
 
     this.audio = createAudioSystem();
     this.weapon = new WeaponSystem(physics, this.damageables, this.audio, {
@@ -123,11 +131,11 @@ export class Game {
     this.combatant = new PlayerCombatant({
       maxHealth: PLAYER_COMBAT_DEFAULTS.maxHealth,
       respawnDelay: PLAYER_COMBAT_DEFAULTS.respawnDelay,
-      spawn: vec3(SPAWN_POSITION[0], SPAWN_POSITION[1], SPAWN_POSITION[2]),
+      spawn: vec3(spawn.position.x, spawn.position.y, spawn.position.z),
     });
     this.damageables.register(this.player.characterCollider.handle, this.combatant);
 
-    this.bots = BOT_SPAWNS.map(
+    this.bots = map.bots.map(
       (spawn) =>
         new CombatBot(physics, this.damageables, {
           id: spawn.id,
@@ -168,8 +176,12 @@ export class Game {
   static async create(elements: GameElements): Promise<Game> {
     const physics = await PhysicsWorld.create();
     const asset = await loadCharacterAsset();
-    const game = new Game(elements, physics, asset);
-    log.info("game ready");
+    // `?map=` selects a map. Unknown ids fall back to the default rather than
+    // failing to start; the regression suites use it to load the training arena.
+    const requested = new URLSearchParams(window.location.search).get("map");
+    const map = resolveMap(requested);
+    const game = new Game(elements, physics, asset, map);
+    log.info(`game ready on map ${map.id} (${map.name})`);
     return game;
   }
 
@@ -212,8 +224,8 @@ export class Game {
     this.player.fixedUpdate(this.intent, dt);
 
     if (this.combatant.fixedUpdate(dt)) {
-      const spawn = this.combatant.spawnPoint;
-      this.teleport(spawn.x, spawn.y, spawn.z);
+      const point = this.combatant.spawnPoint;
+      this.teleport(point.x, point.y, point.z);
     }
 
     // Refreshes the query pipeline the camera, headroom and hitscan read from.
@@ -348,6 +360,13 @@ export class Game {
       fps: this.fps.fps,
       drawCalls: this.renderer.drawCalls,
       characterSource: this.characterSource,
+      mapId: this.map.id,
+      mapName: this.map.name,
+      mapBounds: this.map.bounds,
+      spawnId: this.spawn.id,
+      spawnCount: this.map.spawns.length,
+      spawns: this.map.spawns.map((s) => ({ id: s.id, position: { ...s.position }, yaw: s.yaw })),
+      nearestSpawn: this.nearestSpawnId(),
       standHeight: PLAYER_CONFIG.standHeight,
       characterHeight: this.player.characterHeight,
 
@@ -415,6 +434,23 @@ export class Game {
   /** Development hook: restores every training target to full health. */
   resetTargets(): void {
     this.arena.resetTargets();
+  }
+
+  /** Id of the spawn point nearest the player. Development hook. */
+  private nearestSpawnId(): string {
+    let best = this.spawn.id;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const point of this.map.spawns) {
+      const distance = Math.hypot(
+        point.position.x - this.player.position.x,
+        point.position.z - this.player.position.z,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = point.id;
+      }
+    }
+    return best;
   }
 
   /** Development hook: restores the player to full health immediately. */

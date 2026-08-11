@@ -209,6 +209,20 @@ between the previous and current simulation states by `alpha`.
 - Camera rig: a third-person boom arm anchored to the player's head position,
   with a spring-arm collision query so the camera pulls in rather than clipping
   through geometry. Pitch is clamped; yaw drives the character's aim direction.
+- **Horizontal look is unbounded.** The camera's yaw accumulates without limit
+  and is never wrapped, clamped or reset — turning right past a full circle
+  continues to 2π, 4π and beyond. Rendering uses that raw value; only gameplay
+  consumers that want a canonical angle take the wrapped one.
+
+  An Euler angle of 7π and one of π describe the same orientation, so
+  normalising is invisible in a still frame. It is not invisible to anything that
+  *interpolates* the value: damping across a ±π step sweeps the long way round
+  and snaps. Keeping the rendered angle unbounded means no such seam can be
+  introduced by a later change. Vertical pitch is the opposite — clamped, never
+  wrapped, so it cannot roll over the top.
+- The camera never drives the character's facing directly. The character turns on
+  a deadzone (§4.6), so the two headings are deliberately independent and the
+  camera may rotate freely without the body following one-to-one.
 - Y-up, right-handed, metres. Model forward is −Z.
 - Lighting, post-processing and material strategy are **OPEN (Q10)** — deferred
   to Phase 8/9. Until then: flat grey-box materials and a single directional
@@ -216,7 +230,14 @@ between the previous and current simulation states by `alpha`.
 
 ### 4.3 Input (`input/`)
 
-- Pointer Lock API for mouse look. Raw deltas, no smoothing by default.
+- Pointer Lock API for mouse look. **Relative deltas only** — `movementX`/
+  `movementY` accumulated per event and consumed once per frame. Nothing reads
+  the cursor's screen position: a locked cursor does not move, so a
+  position-based camera would stop turning almost immediately. Raw deltas, no
+  smoothing by default.
+- Losing pointer lock clears held keys and any pending mouse delta, so a delta
+  accumulated while the page was not in control cannot be applied as one jump
+  when it returns.
 - Input is sampled into an immutable `InputCommand` per simulation tick, each
   carrying a monotonically increasing sequence number.
 - Commands are stored in a ring buffer until the server acknowledges them; they
@@ -534,6 +555,36 @@ Auth and Firestore are treated as necessary; everything else is undecided.
 Stat writes happen at match end, batched, from the server, asynchronously and
 off the tick path. A failed write is logged and retried; it never stalls or
 fails a match.
+
+---
+
+## 8.5 Maps (`map/`)
+
+A map is **data**: geometry, decoration, spawn points, targets and bot
+placements, declared in one module and built by `Arena`. Two exist.
+
+| Map | Purpose |
+| --- | ------- |
+| `MAP01` "Substation" | The first designed combat arena. The game's default. |
+| `TRAINING` | The Phase 1 grey-box and the Phase 2 range, unchanged. |
+
+`TRAINING` is kept because its stairs, ramp, crouch gate, corridor and inside
+corner exist to exercise movement and camera, and the regression suites assert
+against their exact coordinates. Deleting it to make room for a designed map
+would throw that coverage away. `?map=<id>` selects one; an unknown id falls
+back to the default rather than failing to start.
+
+**Gameplay geometry and decoration are separate types.** An `ArenaBox` always
+gets a collider; a `DecorBox` never does. That is a type distinction rather than
+a naming convention, so neither mistake is available: no visible-but-not-solid
+cover, and no invisible collision. It also means the subset the authoritative
+server will need — collision and spawns, no meshes or lights — already exists
+and is explicit, instead of having to be recovered from a scene graph later.
+
+Map geometry is sized from `PLAYER_CONFIG` rather than by eye: stair rise below
+`stepHeight`, tread wider than the capsule diameter, ramp under the slope limit,
+low cover below crouch height. A map that needs the movement system changed in
+order to be walkable is a broken map.
 
 ---
 
