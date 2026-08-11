@@ -10,7 +10,8 @@
   },
   "workspaces": [
     "packages/shared",
-    "packages/client"
+    "packages/client",
+    "packages/server"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @nullpoint/client",
@@ -19,7 +20,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/unit/**/*.test.ts\"",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "dev:server": "npm run dev --workspace @nullpoint/server",
+    "test:integration": "node --test --experimental-strip-types \"tests/integration/**/*.test.ts\""
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

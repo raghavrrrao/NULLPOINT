@@ -15,6 +15,17 @@ developer, built for entertainment.
 
 ---
 
+## Running
+
+```
+npm run dev          # client dev server (Vite)
+npm run dev:server   # authoritative game server — foundation only, see below
+```
+
+The game server currently validates the shared map data and exits its startup
+path; it does **not** listen on a socket or simulate anything yet. Multiplayer
+transport and simulation are Session B of Phase 5.
+
 ## Maps
 
 `MAP01` — *Substation*, the default. A 48 × 40 m industrial arena: a central

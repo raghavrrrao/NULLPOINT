@@ -558,7 +558,49 @@ fails a match.
 
 ---
 
-## 8.5 Maps (`map/`)
+## 8.5 Maps
+
+A map has two halves, in two packages, for a reason that is structural rather
+than tidy-minded: the authoritative server builds its own physics world from the
+map and **cannot import the client**.
+
+| Half | Lives in | Contains |
+| ---- | -------- | -------- |
+| Gameplay | `shared/src/map/` | Collision boxes, spawn points, bounds, metrics |
+| Presentation | `client/src/map/` | Decoration, lighting, materials, targets, bots |
+
+There is exactly **one** definition of every coordinate. The client builds its
+meshes from the shared geometry rather than holding a parallel copy, so what a
+player sees and what the server simulates cannot drift apart.
+
+`GameplayMap` is the authoritative half: `id`, `bounds`, `geometry`, `spawns`.
+The server turns it into colliders through `server/src/sim/collision.ts`, which
+is pure and physics-engine-agnostic — half-extents and a transform per box, the
+form Rapier's `ColliderDesc.cuboid` wants and the same list the client's `Arena`
+already builds meshes from.
+
+Two maps exist.
+
+| Map | Purpose |
+| --- | ------- |
+| `MAP01` "Substation" | The first designed combat arena. The game's default. |
+| `TRAINING` | The Phase 1 grey-box and the Phase 2 range, unchanged. |
+
+`TRAINING` is kept because its stairs, ramp, crouch gate, corridor and inside
+corner exist to exercise movement and camera, and the regression suites assert
+against their exact coordinates. `?map=<id>` selects one; an unknown id falls
+back to the default rather than failing to start.
+
+**Gameplay geometry and decoration are separate types.** An `ArenaBox` always
+gets a collider; a `DecorBox` never does, and `DecorBox` does not exist in shared
+at all — the server cannot be handed decoration even by mistake.
+
+Map geometry is sized from `PLAYER_CONFIG` rather than by eye: stair rise below
+`stepHeight`, tread wider than the capsule diameter, ramp under the slope limit,
+low cover below crouch height. A map that needs the movement system changed in
+order to be walkable is a broken map.
+
+### 8.6 Protocol implementation (`shared/src/protocol/`)
 
 A map is **data**: geometry, decoration, spawn points, targets and bot
 placements, declared in one module and built by `Arena`. Two exist.
@@ -585,6 +627,32 @@ Map geometry is sized from `PLAYER_CONFIG` rather than by eye: stair rise below
 `stepHeight`, tread wider than the capsule diameter, ramp under the slope limit,
 low cover below crouch height. A map that needs the movement system changed in
 order to be walkable is a broken map.
+
+
+Protocol **v1** is implemented, exactly as specified in `NETWORK_PROTOCOL.md`,
+which remains the source of truth. All ten message types encode and decode:
+`C_HELLO`, `C_INPUT`, `C_PING`, `C_LEAVE`, `S_WELCOME`, `S_REJECT`,
+`S_SNAPSHOT`, `S_PONG`, `S_PLAYER_JOIN`, `S_PLAYER_LEAVE`.
+
+Three properties are deliberate:
+
+- **Decoding never throws.** §6 requires a clean close with a reason code for
+  every malformed frame and forbids throwing out of the read path, so a failure
+  is an ordinary `DecodeFailure` value the caller is forced to handle.
+- **Validation runs in the documented order** — framing, size, id, length, then
+  fields. The reason code a client receives depends on which check fires first,
+  so reordering them silently changes the protocol's behaviour.
+- **Out-of-domain values are rejected, not clamped** (§6.2). Clamping is for
+  values the server derives itself.
+
+The layer knows nothing of WebSockets, Three.js, Rapier or the DOM. Endianness
+is decided in one place (`cursor.ts`); `DataView` defaults to big-endian, which
+is the easiest way to get a little-endian wire format silently wrong.
+
+Tests cover round trips, every documented rejection, and **literal byte
+layouts** compared against the document's offset tables. The last of those is
+the one that matters: a round trip only proves the encoder and decoder agree
+with each other, and two matching mistakes pass it happily.
 
 ---
 

@@ -1,7 +1,8 @@
 # PROJECT_STATUS.md — NULLPOINT
 
 **Last updated:** 2026-08-10
-**Current phase:** Map 01 — Playable Combat Map ✅ **complete**
+**Current phase:** Phase 5 Session A — Multiplayer Foundation ✅ **complete**
+Sessions B–D (transport, simulation, prediction, combat) ⛔ **not started**
 **Next phase:** ⛔ **none started — awaiting explicit go-ahead.** See the
 numbering note below: the developer used "Phase 3" for character integration,
 which collides with the roadmap's Phase 3 (Server Core & Transport). That phase
@@ -40,6 +41,7 @@ is untouched and still not started.
 | — | Natural TPP Locomotion + Combat Sandbox *(out of roadmap order)* | ✅ Complete |
 | — | Camera & Mouse-Look Stabilisation *(out of roadmap order)* | ✅ Complete |
 | — | Map 01 — Playable Combat Map *(out of roadmap order)* | ✅ Complete |
+| — | Phase 5 Session A — Multiplayer Foundation | ✅ Complete |
 | 3 | Server Core & Transport | ⛔ Not started |
 | 4 | Networked Movement — **first playable multiplayer** | ⛔ Not started |
 | 5 | Combat | ⛔ Not started |
@@ -947,6 +949,79 @@ death and respawn, and a frame-rate/draw-call floor.
   **OPEN** (`PROJECT.md` Q1–Q3).
 - `TRAINING` and `MAP01` share one world; there is no level streaming or
   unloading, because with two small maps there is nothing to stream.
+
+---
+
+## Phase 5 Session A — Multiplayer Foundation ✅
+
+**Directed by the developer on 2026-08-11.** Foundation only: no transport, no
+simulation, no prediction, no multiplayer combat. Those are Sessions B–D.
+
+### Why this session existed
+
+Inspection found two structural blockers, neither of which was a protocol
+conflict:
+
+1. `packages/server` was directory scaffolding — `.gitkeep` files, no
+   `package.json`, not a workspace member.
+2. **Map collision data lived in the client.** The authoritative server must
+   build its own physics world from the map, but `ARCHITECTURE.md` forbids the
+   server importing the client. The data had to move before any server work
+   could begin.
+
+`NETWORK_PROTOCOL.md` turned out to be complete and self-consistent, and
+`shared/src/protocol/` was empty — so there was nothing to conflict with, and no
+version bump or protocol invention was needed.
+
+### Delivered
+
+**Gameplay geometry moved to `shared/src/map/`.** `MAP01` and `TRAINING` each
+now have an authoritative half (collision boxes, spawns, bounds, metrics) in
+shared and a presentation half (decoration, lighting, targets, bots) in the
+client. Coordinates were moved by extracting the existing source text rather
+than retyped, so they could not change in transit — and there is now exactly one
+definition of each. `DecorBox` deliberately does not exist in shared at all: the
+server cannot be handed decoration even by mistake.
+
+**`packages/server` created** as a workspace member with `ws` 8.18.3 and
+`@dimforge/rapier3d-compat` 0.20.0 — both already on `CLAUDE.md` §4's approved
+list, and Rapier pinned to the same version the client uses so there is one
+physics engine. It contains config loading, a pure map→collider conversion, and
+an entry point that validates both maps and reports what a world would contain.
+It runs:
+
+```
+MAP01: 39 colliders, 4 spawns — ready
+TRAINING: 36 colliders, 1 spawns — ready
+```
+
+**Protocol v1 implemented** in `shared/src/protocol/` — all ten message types,
+little-endian, with the documented validation order and reason codes. Decoding
+never throws; every failure is a `DecodeFailure` value.
+
+### Verified
+
+- **61 new protocol tests**: round trips (including boundary, zero, maximum and
+  negative values, multi-byte UTF-8, the ±π yaw seam), every documented
+  rejection, and **literal byte-layout comparisons** against the document's
+  offset tables for all ten messages.
+- Dependency direction checked mechanically: no `server → client` import, no
+  `client → server`, and shared imports neither. The only matches for "Three" or
+  "Rapier" in shared are comments.
+
+### Known limitations / blockers for Session B
+
+- The server does not listen, tick or simulate. By design.
+- Targets and bots remain client-side and are **not** in shared, so they are not
+  yet server-authoritative. Fine for now; Session C must decide whether combat
+  targets become server entities.
+- `stepCharacterMovement` is already pure and shared, so it is server-ready, but
+  the client couples it to Rapier inside `Player`. Session B needs an equivalent
+  server-side character controller — the shared movement itself does not need to
+  change.
+- Development auth mode is gated behind `NULLPOINT_DEV_AUTH` and refuses to run
+  under `NODE_ENV=production`, per `NETWORK_PROTOCOL.md` §4.1. Real Firebase
+  verification is still Phase 7.
 
 ---
 

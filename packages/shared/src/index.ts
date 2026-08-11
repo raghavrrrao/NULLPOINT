@@ -10,4 +10,6 @@ export * from "./types/index.ts";
 export * from "./constants/index.ts";
 export * from "./sim/index.ts";
 export * from "./combat/index.ts";
+export * from "./map/index.ts";
+export * from "./protocol/index.ts";
 export * from "./util/logger.ts";

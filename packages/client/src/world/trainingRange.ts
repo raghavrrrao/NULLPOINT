@@ -1,34 +1,14 @@
-import type { ArenaBox } from "./arenaLayout.ts";
-import type { TrainingTargetOptions } from "./TrainingTarget.ts";
-
 /**
- * The Phase 2 training range.
+ * Client-side training range: targets and bot spawns.
  *
- * Occupies the empty south-east band of the Phase 1 arena (x −8…28, z 20…28) so
- * nothing in the existing layout had to move — the brief is explicit that the
- * map is not to be redesigned.
- *
- * The firing line is at x ≈ −6 and the player shoots along **+X**. That gives a
- * long unobstructed run for the range checks without crossing any Phase 1
- * geometry.
- *
- * The three range targets are **staggered in z on purpose**. Placed on one line
- * they were perfectly collinear from the firing line, so the near plate absorbed
- * every round aimed at the two behind it and they could not be tested — or
- * played — until it was destroyed.
- *
- * The stagger is measured from the *camera*, not the player: the over-the-
- * shoulder offset puts the eye ~0.8 m to the side, which is enough to swing a
- * near plate back into the sight line of a far one.
- *
- *   firing line                                        arena wall
- *   x=−6        x=2      x=12        x=18   x=22   x=26   x=30
- *    |           |         |           |      |      |      |
- *    |  [narrow lane ]   [open]     [cover] [high] [long]   |
+ * The range's solid geometry lives in `@nullpoint/shared` with the rest of the
+ * TRAINING map. Targets and bots are still client-only — they are not yet
+ * server-authoritative — so they stay here.
  */
 
-/** Where the player should stand to use the range, at the feet. */
-export const RANGE_FIRING_LINE: readonly [number, number, number] = [-6, 0.4, 24];
+export { RANGE_BOXES, RANGE_FIRING_LINE } from "@nullpoint/shared";
+
+import type { TrainingTargetOptions } from "./TrainingTarget.ts";
 
 /**
  * Plates face −X, back toward the firing line.
@@ -36,34 +16,6 @@ export const RANGE_FIRING_LINE: readonly [number, number, number] = [-6, 0.4, 24
  * A plate's local forward is +Z, which a yaw of −π/2 rotates onto −X.
  */
 const FACING = -Math.PI / 2;
-
-/** Static geometry for the range. Fed through the same collider-building path. */
-export const RANGE_BOXES: readonly ArenaBox[] = [
-  // Narrow firing lane: two low walls the player shoots between.
-  //
-  // Deliberately started at x = 1.5 rather than nearer the origin. Spanning
-  // x = 0 put a wall across the approach to the south perimeter wall, which is
-  // where the Phase 1 cornered-camera regression test walks — the range must not
-  // reach into ground the existing arena tests rely on.
-  { name: "range-lane-south", position: [5.5, 1.0, 26.3], size: [8, 2.0, 0.4], surface: "wall" },
-  { name: "range-lane-north", position: [5.5, 1.0, 20.8], size: [8, 2.0, 0.4], surface: "wall" },
-
-  // Cover: a chest-high block with a target behind it, so only the upper plate
-  // is exposed from the firing line.
-  //
-  // Sat at z = 21 originally, level with the target — but shots arrive at an
-  // angle from a firing line 3.8 m away in z, so they passed the block's edge
-  // instead of hitting it. It is now on the actual sight line and deep enough
-  // to stay on it.
-  { name: "range-cover", position: [15, 0.75, 21.5], size: [2.4, 1.5, 1.0], surface: "prop" },
-
-  // Elevated platform carrying the high target.
-  { name: "range-riser", position: [22, 1.1, 26.5], size: [3, 2.2, 3], surface: "accent" },
-
-  // Backstop, so long-range misses stop somewhere readable rather than at the
-  // arena wall 30 m further on.
-  { name: "range-backstop", position: [28.4, 1.6, 24], size: [0.5, 3.2, 9], surface: "accent" },
-];
 
 /**
  * Targets at graded distances from the firing line, plus one behind cover and

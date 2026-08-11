@@ -1,0 +1,19 @@
+{
+  "name": "@nullpoint/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NULLPOINT authoritative game server",
+  "scripts": {
+    "dev": "node --experimental-strip-types src/index.ts",
+    "start": "node --experimental-strip-types src/index.ts"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "@nullpoint/shared": "*",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
+  }
+}
